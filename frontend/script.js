@@ -1,6 +1,6 @@
 // ==================== API CONFIGURATION ====================
-// Use localhost for development - the backend runs on port 3000
-const API_URL = 'http://localhost:3000/api';
+// Auto-detect current domain (works on localhost and Render)
+const API_URL = window.location.origin + '/api';
 
 let authToken = localStorage.getItem('authToken');
 let currentUser = null;

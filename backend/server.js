@@ -16,8 +16,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Serve static files
+// Serve static files from frontend folder
 app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(express.static(path.join(__dirname, '../'))); // Fallback for any other static files
 
 // ==================== SCHEMAS ====================
 
@@ -27,7 +28,7 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true },
     phone: { type: String, required: true },
-    balance: { type: Number, default: 100, min: 0 }, // Start with $100 for new users
+    balance: { type: Number, default: 100, min: 0 },
     shipments: [{ type: String, trim: true }],
     createdAt: { type: Date, default: Date.now }
 });
@@ -176,7 +177,6 @@ app.post('/api/auth/signup', async (req, res) => {
     try {
         const { name, email, phone, password } = req.body;
         
-        // Validation
         if (!name || !email || !phone || !password) {
             console.log('❌ Missing fields');
             return res.status(400).json({ error: 'All fields are required' });
@@ -187,29 +187,25 @@ app.post('/api/auth/signup', async (req, res) => {
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
         
-        // Check if user exists
         const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
         if (existingUser) {
             console.log('❌ Email already exists:', email);
             return res.status(409).json({ error: 'Email already registered. Please login instead.' });
         }
         
-        // Create new user
         const user = new User({
             name: name.trim(),
             email: email.toLowerCase().trim(),
             phone: phone.trim(),
             password: password,
-            balance: 100 // Give new users $100 initial balance
+            balance: 100
         });
         
         await user.save();
         console.log('✅ User created successfully:', user.email);
         
-        // Generate token
         const token = user.generateAuthToken();
         
-        // Create welcome transaction
         const welcomeTransaction = new Transaction({
             userId: user._id,
             type: 'deposit',
@@ -471,7 +467,6 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
         let shipment = await Shipment.findOne({ trackingNumber });
         
         if (!shipment) {
-            // Create basic tracking info for any tracking number
             shipment = {
                 trackingNumber,
                 timeline: [{
@@ -504,13 +499,20 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// ==================== FRONTEND ROUTES ====================
+// ==================== FRONTEND ROUTES (CRITICAL FOR RENDER) ====================
 
+// Serve index.html for root path
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
-app.get('*', (req, res) => {
+// Handle client-side routing - THIS MUST BE AFTER ALL API ROUTES
+app.get('*', (req, res, next) => {
+    // Skip API routes - let them return 404 if not found
+    if (req.path.startsWith('/api')) {
+        return next();
+    }
+    // For all other paths, serve index.html (for React/Vue like routing)
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
@@ -518,12 +520,10 @@ app.get('*', (req, res) => {
 
 console.log('\n🔍 Checking configuration...\n');
 
-// Use in-memory MongoDB if no MONGO_URI (for local testing without MongoDB)
 if (!process.env.MONGO_URI) {
     console.log('⚠️  MONGO_URI not found. Using in-memory database (for testing)...');
     console.log('   To use MongoDB Atlas, add MONGO_URI to .env file\n');
     
-    // Start server without MongoDB (mock mode)
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`\n🚀 TRAX Logistics System (Mock Mode - No Database)`);
         console.log(`========================================`);
@@ -534,7 +534,6 @@ if (!process.env.MONGO_URI) {
         console.log(`💡 To enable persistent database, set MONGO_URI in .env file\n`);
     });
 } else {
-    // Connect to MongoDB
     mongoose.connect(process.env.MONGO_URI)
         .then(async () => {
             console.log('✅ MongoDB connected successfully');
@@ -555,7 +554,6 @@ if (!process.env.MONGO_URI) {
             console.error(`   Error: ${err.message}`);
             console.error(`\n💡 Starting in MOCK MODE instead...`);
             
-            // Still start server even if MongoDB fails
             app.listen(PORT, '0.0.0.0', () => {
                 console.log(`\n🚀 TRAX Logistics System (Mock Mode - DB Failed)`);
                 console.log(`========================================`);
