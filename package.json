@@ -1,7 +1,7 @@
 {
-  "name": "trax-backend",
+  "name": "trax-logistics",
   "version": "1.0.0",
-  "description": "TRAX Smart Logistics - Professional Shipment Tracking System",
+  "description": "TRAX Smart Logistics System",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
@@ -17,8 +17,5 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }

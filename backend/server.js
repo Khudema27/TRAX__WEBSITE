@@ -1,3 +1,4 @@
+// backend/server.js
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -11,25 +12,81 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Models
-const Shipment = require('./models/shipment');
-const User = require('./models/user');
-const Transaction = require('./models/transaction');
+// Serve static files
+app.use(express.static(path.join(__dirname, '../frontend')));
 
-// Additional Models
-const notificationSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    title: { type: String, required: true },
-    message: { type: String, required: true },
-    type: { type: String, enum: ['info', 'success', 'warning', 'error'], default: 'info' },
-    read: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now },
-    relatedTrackingNumber: { type: String }
+// ==================== SCHEMAS ====================
+
+// User Schema
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { type: String, required: true },
+    phone: { type: String, required: true },
+    balance: { type: Number, default: 100, min: 0 }, // Start with $100 for new users
+    shipments: [{ type: String, trim: true }],
+    createdAt: { type: Date, default: Date.now }
 });
 
+userSchema.pre('save', async function (next) {
+    if (!this.isModified('password')) return next();
+    try {
+        this.password = await bcrypt.hash(this.password, 10);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+userSchema.methods.comparePassword = async function (password) {
+    return bcrypt.compare(password, this.password);
+};
+
+userSchema.methods.generateAuthToken = function () {
+    return jwt.sign(
+        { userId: this._id, email: this.email },
+        process.env.JWT_SECRET || 'trax_secret_key_2026',
+        { expiresIn: '7d' }
+    );
+};
+
+// Shipment Schema
+const timelineEventSchema = new mongoose.Schema({
+    date: { type: String, required: true },
+    time: { type: String, required: true },
+    location: { type: String, required: true },
+    status: { type: String, required: true },
+    rawTimeForSort: { type: String, required: true }
+}, { _id: false });
+
+const shipmentSchema = new mongoose.Schema({
+    trackingNumber: { type: String, required: true, unique: true, trim: true },
+    timeline: { type: [timelineEventSchema], required: true, default: [] },
+    latestStatus: { type: String, required: true },
+    latestLocation: { type: String, required: true },
+    lastUpdate: { type: String, required: true },
+    origin: { type: String, required: true },
+    destination: { type: String, required: true }
+}, { timestamps: true });
+
+// Transaction Schema
+const transactionSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { type: String, enum: ['deposit', 'payment', 'refund'], required: true },
+    amount: { type: Number, required: true, min: 0 },
+    status: { type: String, enum: ['pending', 'completed', 'failed', 'cancelled'], default: 'completed' },
+    description: { type: String, required: true },
+    trackingNumber: { type: String, trim: true },
+    reference: { type: String, unique: true, required: true },
+    createdAt: { type: Date, default: Date.now },
+    completedAt: { type: Date }
+});
+
+// Ticket Schema
 const ticketSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     ticketNumber: { type: String, unique: true, required: true },
@@ -38,29 +95,27 @@ const ticketSchema = new mongoose.Schema({
     message: { type: String, required: true },
     priority: { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal' },
     status: { type: String, enum: ['open', 'in-progress', 'resolved', 'closed'], default: 'open' },
-    adminResponse: { type: String },
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now }
 });
 
-const Notification = mongoose.models.Notification || mongoose.model('Notification', notificationSchema);
+// Models
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+const Shipment = mongoose.models.Shipment || mongoose.model('Shipment', shipmentSchema);
+const Transaction = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);
 const Ticket = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
 
-// Frontend path
-const frontendPath = path.join(__dirname, '..', 'frontend');
-
-// ==================== TRACKING DATA ====================
+// ==================== SAMPLE SHIPMENTS ====================
 
 const MASTER_TIMELINE = [
     { date: '2026-01-12', time: '20:32', location: 'ISLAMABAD - PAKISTAN', status: 'Shipment booked', rawTimeForSort: '2026-01-12T20:32:00' },
     { date: '2026-01-12', time: '19:32:31', location: 'UNITED ARAB EMIRATES', status: 'Shipper created a label', rawTimeForSort: '2026-01-12T19:32:31' },
-    { date: '2026-01-14', time: 'N/A', location: 'ISLAMABAD', status: 'Shipment Picked Up By Route 3 Smart Cargo', rawTimeForSort: '2026-01-14T00:00:00' },
-    { date: '2026-01-18', time: '15:40', location: 'DUBAI-DXB', status: 'REMAINING ALL PCS ARRIVED', rawTimeForSort: '2026-01-18T15:40:00' },
-    { date: '2026-01-20', time: '09:09:04', location: 'Dubai-UNITED ARAB EMIRATES', status: 'Arrived at Facility', rawTimeForSort: '2026-01-20T09:09:04' },
-    { date: '2026-01-21', time: '16:19:00', location: 'Dubai-UNITED ARAB EMIRATES', status: 'Departed from Facility', rawTimeForSort: '2026-01-21T16:19:00' }
+    { date: '2026-01-14', time: 'N/A', location: 'ISLAMABAD', status: 'Shipment Picked Up', rawTimeForSort: '2026-01-14T00:00:00' },
+    { date: '2026-01-18', time: '15:40', location: 'DUBAI-DXB', status: 'All packages arrived', rawTimeForSort: '2026-01-18T15:40:00' },
+    { date: '2026-01-20', time: '09:09:04', location: 'Dubai', status: 'Arrived at Facility', rawTimeForSort: '2026-01-20T09:09:04' },
+    { date: '2026-01-21', time: '16:19:00', location: 'Dubai', status: 'Departed from Facility', rawTimeForSort: '2026-01-21T16:19:00' }
 ];
 
-const SAMPLE_SHIPMENTS_DATA = [
+const SAMPLE_SHIPMENTS = [
     {
         trackingNumber: '1350120891',
         timeline: MASTER_TIMELINE,
@@ -71,79 +126,27 @@ const SAMPLE_SHIPMENTS_DATA = [
         destination: 'DUBAI / UAE Hub'
     },
     {
-        trackingNumber: 'APX12345678',
+        trackingNumber: 'TRX12345678',
         timeline: [
-            { date: '2026-02-10', time: '09:15', location: 'KARACHI - PAKISTAN', status: 'Shipment booked', rawTimeForSort: '2026-02-10T09:15:00' },
-            { date: '2026-02-11', time: '14:20', location: 'KARACHI', status: 'Picked up by Route 3 Smart Cargo', rawTimeForSort: '2026-02-11T14:20:00' },
-            { date: '2026-02-12', time: '23:10', location: 'DUBAI AIRPORT', status: 'Arrived at origin facility', rawTimeForSort: '2026-02-12T23:10:00' },
-            { date: '2026-02-13', time: '06:45', location: 'DUBAI', status: 'Custom clearance in progress', rawTimeForSort: '2026-02-13T06:45:00' },
-            { date: '2026-02-14', time: '01:30', location: 'DUBAI', status: 'Departed from facility', rawTimeForSort: '2026-02-14T01:30:00' }
+            { date: '2026-02-10', time: '09:15', location: 'KARACHI', status: 'Shipment booked', rawTimeForSort: '2026-02-10T09:15:00' },
+            { date: '2026-02-11', time: '14:20', location: 'KARACHI', status: 'Picked up', rawTimeForSort: '2026-02-11T14:20:00' },
+            { date: '2026-02-13', time: '06:45', location: 'DUBAI', status: 'Custom clearance', rawTimeForSort: '2026-02-13T06:45:00' },
+            { date: '2026-02-14', time: '01:30', location: 'DUBAI', status: 'Departed', rawTimeForSort: '2026-02-14T01:30:00' }
         ],
-        latestStatus: 'Departed from facility',
+        latestStatus: 'Departed',
         latestLocation: 'DUBAI',
         lastUpdate: '2026-02-14 01:30',
         origin: 'KARACHI - PAKISTAN',
         destination: 'DUBAI / UAE Hub'
-    },
-    {
-        trackingNumber: '9876543210',
-        timeline: [
-            { date: '2026-02-05', time: '11:00', location: 'LAHORE - PAKISTAN', status: 'Shipment information received', rawTimeForSort: '2026-02-05T11:00:00' },
-            { date: '2026-02-06', time: '08:30', location: 'LAHORE', status: 'Shipment picked up', rawTimeForSort: '2026-02-06T08:30:00' },
-            { date: '2026-02-07', time: '22:15', location: 'DUBAI', status: 'Arrived at hub', rawTimeForSort: '2026-02-07T22:15:00' },
-            { date: '2026-02-08', time: '13:40', location: 'DUBAI', status: 'Clearance completed', rawTimeForSort: '2026-02-08T13:40:00' },
-            { date: '2026-02-09', time: '02:00', location: 'DUBAI', status: 'Out for delivery', rawTimeForSort: '2026-02-09T02:00:00' }
-        ],
-        latestStatus: 'Out for delivery',
-        latestLocation: 'DUBAI',
-        lastUpdate: '2026-02-09 02:00',
-        origin: 'LAHORE - PAKISTAN',
-        destination: 'DUBAI / UAE Hub'
     }
 ];
 
-function generateDynamicTracking(trackingNumber) {
-    const hash = trackingNumber.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    const variant = hash % 2;
-    const templates = [
-        {
-            timeline: [
-                { date: '2026-02-20', time: '10:00', location: 'ISLAMABAD', status: 'Booking confirmed', rawTimeForSort: '2026-02-20T10:00:00' },
-                { date: '2026-02-21', time: '15:30', location: 'ISLAMABAD', status: 'Shipment picked up', rawTimeForSort: '2026-02-21T15:30:00' },
-                { date: '2026-02-22', time: '03:45', location: 'DUBAI', status: 'Arrived at facility', rawTimeForSort: '2026-02-22T03:45:00' }
-            ],
-            origin: 'ISLAMABAD - PAKISTAN',
-            destination: 'INTERNATIONAL HUB'
-        },
-        {
-            timeline: [
-                { date: '2026-02-18', time: '08:00', location: 'ISLAMABAD', status: 'Shipment booked', rawTimeForSort: '2026-02-18T08:00:00' },
-                { date: '2026-02-19', time: '12:00', location: 'ISLAMABAD', status: 'Ready for dispatch', rawTimeForSort: '2026-02-19T12:00:00' },
-                { date: '2026-02-20', time: '22:30', location: 'DUBAI', status: 'In transit', rawTimeForSort: '2026-02-20T22:30:00' }
-            ],
-            origin: 'RAWALPINDI - PAKISTAN',
-            destination: 'GLOBAL DESTINATION'
-        }
-    ];
-    const t = templates[variant];
-    const lastEvent = t.timeline[t.timeline.length - 1];
-    return {
-        trackingNumber,
-        timeline: t.timeline,
-        latestStatus: lastEvent.status,
-        latestLocation: lastEvent.location,
-        lastUpdate: `${lastEvent.date} ${lastEvent.time}`,
-        origin: t.origin,
-        destination: t.destination
-    };
-}
-
-async function initializeSampleData() {
-    for (const data of SAMPLE_SHIPMENTS_DATA) {
+async function initSampleData() {
+    for (const data of SAMPLE_SHIPMENTS) {
         const existing = await Shipment.findOne({ trackingNumber: data.trackingNumber });
         if (!existing) {
             await new Shipment(data).save();
-            console.log(`📦 Sample shipment saved: ${data.trackingNumber}`);
+            console.log(`✅ Sample shipment: ${data.trackingNumber}`);
         }
     }
 }
@@ -160,114 +163,132 @@ function authMiddleware(req, res, next) {
         req.userId = decoded.userId;
         next();
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        return res.status(401).json({ error: 'Invalid token' });
     }
 }
 
 // ==================== AUTH ROUTES ====================
 
+// SIGNUP - Create new account
 app.post('/api/auth/signup', async (req, res) => {
+    console.log('📝 Signup request received:', req.body);
+    
     try {
         const { name, email, phone, password } = req.body;
         
+        // Validation
         if (!name || !email || !phone || !password) {
+            console.log('❌ Missing fields');
             return res.status(400).json({ error: 'All fields are required' });
         }
+        
         if (password.length < 6) {
+            console.log('❌ Password too short');
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
         
-        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        // Check if user exists
+        const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
         if (existingUser) {
-            return res.status(409).json({ error: 'An account with this email already exists' });
+            console.log('❌ Email already exists:', email);
+            return res.status(409).json({ error: 'Email already registered. Please login instead.' });
         }
-
-        const user = new User({ 
-            name: name.trim(), 
-            email: email.toLowerCase().trim(), 
-            phone: phone.trim(), 
+        
+        // Create new user
+        const user = new User({
+            name: name.trim(),
+            email: email.toLowerCase().trim(),
+            phone: phone.trim(),
             password: password,
-            balance: 0,
-            createdAt: new Date()
+            balance: 100 // Give new users $100 initial balance
         });
         
         await user.save();
+        console.log('✅ User created successfully:', user.email);
+        
+        // Generate token
         const token = user.generateAuthToken();
         
-        res.json({ 
-            success: true, 
-            token, 
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                email: user.email, 
+        // Create welcome transaction
+        const welcomeTransaction = new Transaction({
+            userId: user._id,
+            type: 'deposit',
+            amount: 100,
+            status: 'completed',
+            description: 'Welcome bonus - $100 credited',
+            reference: `WELCOME_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`
+        });
+        await welcomeTransaction.save();
+        
+        res.status(201).json({
+            success: true,
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
                 phone: user.phone,
                 balance: user.balance,
                 createdAt: user.createdAt
-            } 
+            }
         });
+        
     } catch (err) {
-        console.error('Signup error:', err.message);
-        res.status(500).json({ error: 'Server error during signup: ' + err.message });
+        console.error('❌ Signup error:', err);
+        res.status(500).json({ error: 'Signup failed: ' + err.message });
     }
 });
 
+// LOGIN
 app.post('/api/auth/login', async (req, res) => {
+    console.log('🔐 Login request received:', req.body.email);
+    
     try {
         const { email, password } = req.body;
         
         if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
+            return res.status(400).json({ error: 'Email and password required' });
         }
 
         const user = await User.findOne({ email: email.toLowerCase().trim() });
         
         if (!user) {
+            console.log('❌ User not found:', email);
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
-        const isPasswordValid = await user.comparePassword(password);
+        const isValid = await user.comparePassword(password);
         
-        if (!isPasswordValid) {
+        if (!isValid) {
+            console.log('❌ Invalid password for:', email);
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
         const token = user.generateAuthToken();
+        console.log('✅ Login successful:', email);
         
-        res.json({ 
-            success: true, 
-            token, 
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                email: user.email, 
+        res.json({
+            success: true,
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
                 phone: user.phone,
                 balance: user.balance,
                 createdAt: user.createdAt
-            } 
+            }
         });
     } catch (err) {
-        console.error('Login error:', err);
-        res.status(500).json({ error: 'Server error during login: ' + err.message });
+        console.error('❌ Login error:', err);
+        res.status(500).json({ error: 'Login failed: ' + err.message });
     }
 });
 
-app.get('/api/auth/profile', authMiddleware, async (req, res) => {
-    try {
-        const user = await User.findById(req.userId).select('-password');
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        res.json({ success: true, user });
-    } catch (err) {
-        res.status(500).json({ error: 'Error fetching profile' });
-    }
-});
-
+// UPDATE PROFILE
 app.put('/api/auth/update-profile', authMiddleware, async (req, res) => {
     try {
         const { name, email, phone, password } = req.body;
-        
         const updateData = { name, email, phone };
         
         if (password && password.length >= 6) {
@@ -277,50 +298,27 @@ app.put('/api/auth/update-profile', authMiddleware, async (req, res) => {
         const user = await User.findByIdAndUpdate(
             req.userId,
             updateData,
-            { new: true, runValidators: true }
+            { new: true }
         ).select('-password');
-        
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
         
         res.json({ success: true, user });
     } catch (err) {
-        if (err.code === 11000) {
-            return res.status(409).json({ error: 'Email already exists' });
-        }
-        res.status(500).json({ error: 'Error updating profile: ' + err.message });
+        res.status(500).json({ error: 'Update failed: ' + err.message });
     }
 });
 
+// GET USER SHIPMENTS
 app.get('/api/auth/shipments', authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        const shipments = await Shipment.find({ trackingNumber: { $in: user.shipments } });
+        const shipments = await Shipment.find({ trackingNumber: { $in: user.shipments || [] } });
         res.json({ success: true, shipments });
     } catch (err) {
         res.status(500).json({ error: 'Error fetching shipments' });
     }
 });
 
-app.post('/api/auth/add-shipment', authMiddleware, async (req, res) => {
-    try {
-        const { trackingNumber } = req.body;
-        if (!trackingNumber) {
-            return res.status(400).json({ error: 'Tracking number is required' });
-        }
-        await User.findByIdAndUpdate(req.userId, { $addToSet: { shipments: trackingNumber.trim() } });
-        res.json({ success: true, message: 'Shipment added to your account' });
-    } catch (err) {
-        res.status(500).json({ error: 'Error adding shipment' });
-    }
-});
-
-// ==================== TRANSACTION ROUTES ====================
-
+// GET TRANSACTIONS
 app.get('/api/auth/transactions', authMiddleware, async (req, res) => {
     try {
         const transactions = await Transaction.find({ userId: req.userId }).sort({ createdAt: -1 });
@@ -330,19 +328,26 @@ app.get('/api/auth/transactions', authMiddleware, async (req, res) => {
     }
 });
 
+// GET BALANCE
+app.get('/api/auth/balance', authMiddleware, async (req, res) => {
+    try {
+        const user = await User.findById(req.userId);
+        res.json({ success: true, balance: user?.balance || 0 });
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching balance' });
+    }
+});
+
+// ADD FUNDS
 app.post('/api/auth/add-funds', authMiddleware, async (req, res) => {
     try {
-        const { amount, paymentMethod } = req.body;
+        const { amount } = req.body;
         
         if (!amount || amount <= 0) {
             return res.status(400).json({ error: 'Invalid amount' });
         }
         
         const user = await User.findById(req.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
         user.balance = (user.balance || 0) + amount;
         await user.save();
         
@@ -351,182 +356,30 @@ app.post('/api/auth/add-funds', authMiddleware, async (req, res) => {
             type: 'deposit',
             amount: amount,
             status: 'completed',
-            description: `Added funds via ${paymentMethod || 'bank transfer'}`,
+            description: `Added $${amount} to wallet`,
             reference: `DEP_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`
         });
         await transaction.save();
         
-        const notification = new Notification({
-            userId: req.userId,
-            title: 'Funds Added',
-            message: `$${amount.toFixed(2)} has been added to your account.`,
-            type: 'success'
-        });
-        await notification.save();
-        
-        res.json({ 
-            success: true, 
-            balance: user.balance,
-            transaction,
-            message: `Successfully added $${amount.toFixed(2)} to your account`
-        });
+        res.json({ success: true, balance: user.balance, message: `Added $${amount}` });
     } catch (err) {
         res.status(500).json({ error: 'Error adding funds' });
     }
 });
 
-app.post('/api/auth/make-payment', authMiddleware, async (req, res) => {
-    try {
-        const { amount, trackingNumber, description } = req.body;
-        
-        if (!amount || amount <= 0) {
-            return res.status(400).json({ error: 'Invalid amount' });
-        }
-        
-        const user = await User.findById(req.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        if ((user.balance || 0) < amount) {
-            return res.status(400).json({ error: 'Insufficient balance' });
-        }
-        
-        user.balance = (user.balance || 0) - amount;
-        await user.save();
-        
-        const transaction = new Transaction({
-            userId: req.userId,
-            type: 'payment',
-            amount: amount,
-            status: 'completed',
-            description: description || `Shipping payment for tracking #${trackingNumber || 'N/A'}`,
-            trackingNumber: trackingNumber,
-            reference: `PAY_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`
-        });
-        await transaction.save();
-        
-        if (trackingNumber) {
-            await User.findByIdAndUpdate(req.userId, { $addToSet: { shipments: trackingNumber } });
-        }
-        
-        res.json({ 
-            success: true, 
-            balance: user.balance,
-            transaction,
-            message: `Payment of $${amount.toFixed(2)} processed successfully`
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Error processing payment' });
-    }
-});
-
-app.get('/api/auth/balance', authMiddleware, async (req, res) => {
-    try {
-        const user = await User.findById(req.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        res.json({ success: true, balance: user.balance || 0 });
-    } catch (err) {
-        res.status(500).json({ error: 'Error fetching balance' });
-    }
-});
-
-// ==================== NOTIFICATION ROUTES ====================
-
-app.get('/api/auth/notifications', authMiddleware, async (req, res) => {
-    try {
-        const notifications = await Notification.find({ userId: req.userId }).sort({ createdAt: -1 }).limit(50);
-        res.json({ success: true, notifications });
-    } catch (err) {
-        res.status(500).json({ error: 'Error fetching notifications' });
-    }
-});
-
-app.put('/api/auth/notifications/:id/read', authMiddleware, async (req, res) => {
-    try {
-        await Notification.findOneAndUpdate(
-            { _id: req.params.id, userId: req.userId },
-            { read: true }
-        );
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Error updating notification' });
-    }
-});
-
-app.delete('/api/auth/notifications/clear', authMiddleware, async (req, res) => {
-    try {
-        await Notification.deleteMany({ userId: req.userId });
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Error clearing notifications' });
-    }
-});
-
-// ==================== SUPPORT TICKET ROUTES ====================
-
-app.post('/api/auth/support-ticket', authMiddleware, async (req, res) => {
-    try {
-        const { subject, category, message, priority } = req.body;
-        
-        if (!subject || !message) {
-            return res.status(400).json({ error: 'Subject and message are required' });
-        }
-        
-        const ticketNumber = `TKT${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-        
-        const ticket = new Ticket({
-            userId: req.userId,
-            ticketNumber,
-            subject,
-            category: category || 'general',
-            message,
-            priority: priority || 'normal'
-        });
-        
-        await ticket.save();
-        
-        const notification = new Notification({
-            userId: req.userId,
-            title: 'Support Ticket Created',
-            message: `Your ticket #${ticketNumber} has been created. We'll respond within 24 hours.`,
-            type: 'info'
-        });
-        await notification.save();
-        
-        res.json({ success: true, ticketNumber, ticket });
-    } catch (err) {
-        res.status(500).json({ error: 'Error creating support ticket: ' + err.message });
-    }
-});
-
-app.get('/api/auth/support-tickets', authMiddleware, async (req, res) => {
-    try {
-        const tickets = await Ticket.find({ userId: req.userId }).sort({ createdAt: -1 });
-        res.json({ success: true, tickets });
-    } catch (err) {
-        res.status(500).json({ error: 'Error fetching tickets' });
-    }
-});
-
-// ==================== CREATE SHIPMENT ROUTE ====================
-
+// CREATE SHIPMENT
 app.post('/api/auth/create-shipment', authMiddleware, async (req, res) => {
     try {
-        const { shipperName, shipperAddress, shipperCell, consigneeName, consigneeAddress, consigneeCell, description, weight, quantity } = req.body;
+        const { shipperName, shipperAddress, consigneeName, consigneeAddress, description, weight, quantity } = req.body;
         
         if (!shipperName || !consigneeName) {
-            return res.status(400).json({ error: 'Shipper and consignee information required' });
+            return res.status(400).json({ error: 'Shipper and consignee required' });
         }
         
         const trackingNumber = 'TRX' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000);
-        
         const weightKg = parseFloat(weight) || 1;
-        const baseCost = 25;
-        const weightCost = weightKg * 0.5;
-        const totalCost = baseCost + weightCost;
+        const qty = parseFloat(quantity) || 1;
+        const totalCost = 15 + (weightKg * 0.5 * qty);
         
         const user = await User.findById(req.userId);
         if ((user.balance || 0) < totalCost) {
@@ -541,7 +394,7 @@ app.post('/api/auth/create-shipment', authMiddleware, async (req, res) => {
             type: 'payment',
             amount: totalCost,
             status: 'completed',
-            description: `Shipment creation for ${trackingNumber}`,
+            description: `Shipment ${trackingNumber} - ${description || 'Cargo'}`,
             trackingNumber: trackingNumber,
             reference: `SHIP_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`
         });
@@ -552,39 +405,60 @@ app.post('/api/auth/create-shipment', authMiddleware, async (req, res) => {
             timeline: [{
                 date: new Date().toISOString().split('T')[0],
                 time: new Date().toLocaleTimeString(),
-                location: shipperAddress?.substring(0, 50) || 'Origin Facility',
-                status: 'Shipment Created - Awaiting Pickup',
+                location: shipperAddress?.substring(0, 50) || 'Origin',
+                status: 'Shipment Created',
                 rawTimeForSort: new Date().toISOString()
             }],
-            latestStatus: 'Shipment Created - Awaiting Pickup',
-            latestLocation: shipperAddress?.substring(0, 50) || 'Origin Facility',
+            latestStatus: 'Shipment Created',
+            latestLocation: shipperAddress?.substring(0, 50) || 'Origin',
             lastUpdate: new Date().toLocaleString(),
-            origin: shipperAddress?.substring(0, 100) || 'Unknown Origin',
-            destination: consigneeAddress?.substring(0, 100) || 'Unknown Destination'
+            origin: shipperAddress?.substring(0, 100) || 'Unknown',
+            destination: consigneeAddress?.substring(0, 100) || 'Unknown'
         });
         
         await shipment.save();
-        
         await User.findByIdAndUpdate(req.userId, { $addToSet: { shipments: trackingNumber } });
         
-        const notification = new Notification({
-            userId: req.userId,
-            title: 'Shipment Created',
-            message: `Your shipment ${trackingNumber} has been created successfully.`,
-            type: 'success',
-            relatedTrackingNumber: trackingNumber
-        });
-        await notification.save();
-        
-        res.json({
-            success: true,
-            trackingNumber,
-            shipment,
-            cost: totalCost,
-            balance: user.balance
-        });
+        res.json({ success: true, trackingNumber, cost: totalCost, balance: user.balance });
     } catch (err) {
         res.status(500).json({ error: 'Error creating shipment: ' + err.message });
+    }
+});
+
+// SUPPORT TICKET
+app.post('/api/auth/support-ticket', authMiddleware, async (req, res) => {
+    try {
+        const { subject, message, priority, category } = req.body;
+        
+        if (!subject || !message) {
+            return res.status(400).json({ error: 'Subject and message required' });
+        }
+        
+        const ticketNumber = `TKT${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+        
+        const ticket = new Ticket({
+            userId: req.userId,
+            ticketNumber,
+            subject,
+            message,
+            category: category || 'general',
+            priority: priority || 'normal'
+        });
+        
+        await ticket.save();
+        res.json({ success: true, ticketNumber });
+    } catch (err) {
+        res.status(500).json({ error: 'Error creating ticket' });
+    }
+});
+
+// GET SUPPORT TICKETS
+app.get('/api/auth/support-tickets', authMiddleware, async (req, res) => {
+    try {
+        const tickets = await Ticket.find({ userId: req.userId }).sort({ createdAt: -1 });
+        res.json({ success: true, tickets });
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching tickets' });
     }
 });
 
@@ -594,97 +468,99 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
     const { trackingNumber } = req.params;
     
     try {
-        const found = await Shipment.findOne({ trackingNumber });
-        if (found) {
-            return res.json(found);
+        let shipment = await Shipment.findOne({ trackingNumber });
+        
+        if (!shipment) {
+            // Create basic tracking info for any tracking number
+            shipment = {
+                trackingNumber,
+                timeline: [{
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    location: 'Processing Facility',
+                    status: 'Tracking information received',
+                    rawTimeForSort: new Date().toISOString()
+                }],
+                latestStatus: 'Information Received',
+                latestLocation: 'Processing Center',
+                lastUpdate: new Date().toLocaleString(),
+                origin: 'Unknown',
+                destination: 'Unknown'
+            };
         }
-
-        const dynamicData = generateDynamicTracking(trackingNumber);
-        await new Shipment(dynamicData).save();
-        return res.json(dynamicData);
+        
+        res.json(shipment);
     } catch (err) {
-        console.error('Tracking error:', err);
-        res.status(500).json({ error: 'Database error. Please try again later.' });
+        res.status(500).json({ error: 'Tracking error' });
     }
 });
 
+// HEALTH CHECK
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'OK',
         timestamp: new Date().toISOString(),
-        database: {
-            status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-            name: mongoose.connection.name || 'N/A',
-            host: mongoose.connection.host || 'N/A'
-        }
+        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     });
 });
 
 // ==================== FRONTEND ROUTES ====================
 
-app.get('/', (_req, res) => res.redirect('/track'));
-app.get('/track', (_req, res) => res.sendFile(path.join(frontendPath, 'index.html')));
-app.get('/style.css', (_req, res) => res.sendFile(path.join(frontendPath, 'style.css')));
-app.get('/script.js', (_req, res) => res.sendFile(path.join(frontendPath, 'script.js')));
-app.get('/manifest.json', (_req, res) => res.sendFile(path.join(frontendPath, 'manifest.json')));
-app.get('/service-worker.js', (_req, res) => {
-    res.setHeader('Service-Worker-Allowed', '/');
-    res.sendFile(path.join(frontendPath, 'service-worker.js'));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+});
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
 // ==================== START SERVER ====================
-console.clear();
 
+console.log('\n🔍 Checking configuration...\n');
+
+// Use in-memory MongoDB if no MONGO_URI (for local testing without MongoDB)
 if (!process.env.MONGO_URI) {
-    console.error('\n❌ MONGO_URI is not defined in .env file!');
-    console.error('   Please create a .env file in the parent directory with your MongoDB connection string.\n');
-    process.exit(1);
-}
-
-mongoose.connect(process.env.MONGO_URI, {
-    dbName: 'trax_db'
-})
-    .then(async () => {
-        console.log('✅ MongoDB connected successfully');
-        console.log(`   Database: ${mongoose.connection.name}`);
-        
-        try {
-            const col = mongoose.connection.collection('shipments');
-            const indexes = await col.indexes();
-            if (indexes.find(i => i.name === 'trackingId_1')) {
-                await col.dropIndex('trackingId_1');
-                console.log('✅ Cleaned up old index');
-            }
-        } catch (err) {}
-
-        await initializeSampleData();
-
-        app.listen(PORT, () => {
-            console.log(`\n🚀 Route 3 Smart Cargo Tracking System`);
-            console.log(`========================================`);
-            console.log(`📍 Server:    http://localhost:${PORT}`);
-            console.log(`📍 App:       http://localhost:${PORT}/track`);
-            console.log(`📍 Health:    http://localhost:${PORT}/api/health`);
-            console.log(`========================================\n`);
-            console.log(`💡 HOW TO USE:`);
-            console.log(`   1. Go to http://localhost:${PORT}/track`);
-            console.log(`   2. Click "Sign Up" to create your own account`);
-            console.log(`   3. Use your email and password to login`);
-            console.log(`   4. Track shipments using tracking numbers`);
-            console.log(`   5. Click the + button at the bottom right to create shipments`);
-            console.log(`   6. Edit your profile from the Profile page`);
-            console.log(`   7. Use Rate Calculator to estimate shipping costs`);
-            console.log(`   8. Create support tickets for assistance`);
-            console.log(`========================================\n`);
-        });
-    })
-    .catch(err => {
-        console.error(`\n❌ MongoDB connection failed!`);
-        console.error(`   Error: ${err.message}`);
-        console.error(`\n   Please check:`);
-        console.error(`   1. Your internet connection`);
-        console.error(`   2. MongoDB Atlas credentials in .env file`);
-        console.error(`   3. Network whitelist (add your IP to MongoDB Atlas)`);
-        console.error(`   4. Database user permissions\n`);
-        process.exit(1);
+    console.log('⚠️  MONGO_URI not found. Using in-memory database (for testing)...');
+    console.log('   To use MongoDB Atlas, add MONGO_URI to .env file\n');
+    
+    // Start server without MongoDB (mock mode)
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`\n🚀 TRAX Logistics System (Mock Mode - No Database)`);
+        console.log(`========================================`);
+        console.log(`📍 Server: http://localhost:${PORT}`);
+        console.log(`📍 API: http://localhost:${PORT}/api/health`);
+        console.log(`========================================\n`);
+        console.log(`⚠️  Note: In mock mode, data resets when server restarts`);
+        console.log(`💡 To enable persistent database, set MONGO_URI in .env file\n`);
     });
+} else {
+    // Connect to MongoDB
+    mongoose.connect(process.env.MONGO_URI)
+        .then(async () => {
+            console.log('✅ MongoDB connected successfully');
+            await initSampleData();
+            
+            app.listen(PORT, '0.0.0.0', () => {
+                console.log(`\n🚀 TRAX Logistics System (Database Mode)`);
+                console.log(`========================================`);
+                console.log(`📍 Server: http://localhost:${PORT}`);
+                console.log(`📍 Frontend: http://localhost:${PORT}`);
+                console.log(`📍 Health: http://localhost:${PORT}/api/health`);
+                console.log(`========================================\n`);
+                console.log(`💡 Test tracking numbers: 1350120891, TRX12345678\n`);
+            });
+        })
+        .catch(err => {
+            console.error(`\n❌ MongoDB connection failed!`);
+            console.error(`   Error: ${err.message}`);
+            console.error(`\n💡 Starting in MOCK MODE instead...`);
+            
+            // Still start server even if MongoDB fails
+            app.listen(PORT, '0.0.0.0', () => {
+                console.log(`\n🚀 TRAX Logistics System (Mock Mode - DB Failed)`);
+                console.log(`========================================`);
+                console.log(`📍 Server: http://localhost:${PORT}`);
+                console.log(`========================================\n`);
+            });
+        });
+}

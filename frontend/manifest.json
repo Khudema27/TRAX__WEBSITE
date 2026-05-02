@@ -2,7 +2,7 @@
     "name": "TRAX Smart Logistics",
     "short_name": "TRAX",
     "description": "Route 3 TRAX - Professional shipment tracking with AI-powered logistics",
-    "start_url": "/",
+    "start_url": "/trax/",
     "display": "standalone",
     "background_color": "#064e3b",
     "theme_color": "#064e3b",

@@ -1,5 +1,7 @@
 // ==================== API CONFIGURATION ====================
+// Use localhost for development - the backend runs on port 3000
 const API_URL = 'http://localhost:3000/api';
+
 let authToken = localStorage.getItem('authToken');
 let currentUser = null;
 
@@ -410,7 +412,7 @@ async function trackShipmentWithMap(trackingNumber) {
             'RAWALPINDI': { lat: 33.5651, lon: 73.0169, name: 'Rawalpindi' }
         };
         
-        let currentLocation = locationMap[shipment.latestLocation.split('-')[0].trim()] || locationMap['DUBAI'];
+        let currentLocation = locationMap[shipment.latestLocation?.split('-')[0]?.trim()] || locationMap['DUBAI'];
         
         resultDiv.innerHTML = `
             <div class="tracking-card">
@@ -438,7 +440,7 @@ async function trackShipmentWithMap(trackingNumber) {
                 <h3 style="padding: 24px 24px 0 24px;"><i class="fas fa-map"></i> Live Location Map</h3>
                 <div id="mapContainer" style="height: 300px; margin: 16px; border-radius: 20px; overflow: hidden; background: #e2e8f0; position: relative;">
                     <iframe 
-                        src="https://www.openstreetmap.org/export/embed.html?bbox=${currentLocation.lon-0.5},${currentLocation.lat-0.5},${currentLocation.lon+0.5},${currentLocation.lat+0.5}&layer=mapnik&marker=${currentLocation.lat},${currentLocation.lon}"
+                        src="https://www.openstreetmap.org/export/embed.html?bbox=${currentLocation.lon-0.3},${currentLocation.lat-0.3},${currentLocation.lon+0.3},${currentLocation.lat+0.3}&layer=mapnik&marker=${currentLocation.lat},${currentLocation.lon}"
                         style="width: 100%; height: 100%; border: 0;">
                     </iframe>
                     <div style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px;">
