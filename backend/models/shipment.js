@@ -15,7 +15,8 @@ const shipmentSchema = new mongoose.Schema({
     latestLocation: { type: String, required: true },
     lastUpdate: { type: String, required: true },
     origin: { type: String, required: true },
-    destination: { type: String, required: true }
+    destination: { type: String, required: true },
+    lastFetched: { type: Date, default: Date.now }
 }, { timestamps: true, collection: 'shipments' });
 
 module.exports = mongoose.model('Shipment', shipmentSchema);
