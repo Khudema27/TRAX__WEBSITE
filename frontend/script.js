@@ -125,6 +125,13 @@ function showAuth() {
     updateBackgroundForAuth();
 }
 
+function showAuthTab(tab) {
+    showAuth();
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.getElementById('loginForm')?.classList.toggle('active', tab === 'login');
+    document.getElementById('signupForm')?.classList.toggle('active', tab === 'signup');
+}
+
 function showDashboard() {
     document.getElementById('welcomeScreen').classList.add('hide');
     document.getElementById('authScreen').classList.remove('active');
@@ -145,8 +152,80 @@ function showLoading(show) {
     }
 }
 
+// ==================== TOAST NOTIFICATION ====================
+function showToast(message, type = 'error') {
+    // Remove existing toast
+    const existingToast = document.querySelector('.toast-notification');
+    if (existingToast) {
+        existingToast.remove();
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    
+    const icon = type === 'error' ? '❌' : type === 'success' ? '✅' : '⚠️';
+    const bgColor = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : '#f59e0b';
+    
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px; background: white; padding: 16px 24px; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); border-left: 5px solid ${bgColor}; min-width: 300px; max-width: 500px;">
+            <span style="font-size: 24px;">${icon}</span>
+            <div>
+                <div style="font-weight: 600; color: #1e293b; font-size: 15px;">${message}</div>
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8; margin-left: auto;">&times;</button>
+        </div>
+    `;
+    
+    toast.style.cssText = `
+        position: fixed;
+        top: 30px;
+        right: 30px;
+        z-index: 99999;
+        animation: slideInRight 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+        font-family: 'Inter', sans-serif;
+    `;
+    
+    // Add animation keyframes if not already added
+    if (!document.getElementById('toastStyles')) {
+        const style = document.createElement('style');
+        style.id = 'toastStyles';
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100px); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(toast);
+    
+    // Auto dismiss after 5 seconds
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.style.animation = 'slideOutRight 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards';
+            setTimeout(() => toast.remove(), 500);
+        }
+    }, 5000);
+}
+
 // ==================== AUTH ====================
 async function signup(name, email, phone, password) {
+    // Validate inputs first
+    if (!name || !email || !phone || !password) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('Password must be at least 6 characters', 'error');
+        return;
+    }
+    
     showLoading(true);
     try {
         const result = await apiRequest('/auth/signup', 'POST', { name, email, phone, password });
@@ -155,14 +234,37 @@ async function signup(name, email, phone, password) {
         localStorage.setItem('authToken', authToken);
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
         showLoading(false);
+        showToast(`Welcome ${name}! Account created successfully 🎉`, 'success');
         showDashboard();
     } catch (error) {
         showLoading(false);
-        alert(error.message || 'Signup failed');
+        // Check if it's a duplicate email error
+        if (error.message.toLowerCase().includes('email already exists') || 
+            error.message.toLowerCase().includes('duplicate') ||
+            error.message.toLowerCase().includes('email already registered')) {
+            showToast('This email is already registered. Please login instead.', 'error');
+            // Switch to login tab after a moment
+            setTimeout(() => {
+                document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('[data-tab="login"]')?.classList.add('active');
+                document.getElementById('loginForm')?.classList.add('active');
+                document.getElementById('signupForm')?.classList.remove('active');
+                // Pre-fill email field
+                const loginEmail = document.getElementById('loginEmail');
+                if (loginEmail) loginEmail.value = email;
+            }, 1000);
+        } else {
+            showToast(error.message || 'Signup failed. Please try again.', 'error');
+        }
     }
 }
 
 async function login(email, password) {
+    if (!email || !password) {
+        showToast('Please enter email and password', 'error');
+        return;
+    }
+    
     showLoading(true);
     try {
         const result = await apiRequest('/auth/login', 'POST', { email, password });
@@ -171,19 +273,34 @@ async function login(email, password) {
         localStorage.setItem('authToken', authToken);
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
         showLoading(false);
+        showToast(`Welcome back, ${currentUser.name}! 👋`, 'success');
         showDashboard();
     } catch (error) {
         showLoading(false);
-        alert(error.message || 'Invalid email or password');
+        if (error.message.toLowerCase().includes('invalid credentials') || 
+            error.message.toLowerCase().includes('invalid email') ||
+            error.message.toLowerCase().includes('user not found')) {
+            showToast('Invalid email or password. Please try again.', 'error');
+        } else {
+            showToast(error.message || 'Login failed. Please try again.', 'error');
+        }
     }
 }
 
+// ==================== UPDATED LOGOUT FUNCTION ====================
 function logout() {
     authToken = null;
     currentUser = null;
     localStorage.removeItem('authToken');
     localStorage.removeItem('currentUser');
-    showAuth();
+    // Show welcome screen instead of auth screen
+    showWelcome();
+    // Reset the welcome tracking input
+    const welcomeInput = document.getElementById('welcomeTrackInput');
+    if (welcomeInput) welcomeInput.value = '';
+    const welcomeResult = document.getElementById('welcomeTrackResult');
+    if (welcomeResult) welcomeResult.innerHTML = '';
+    showToast('Logged out successfully', 'success');
 }
 
 // ==================== DASHBOARD ====================
@@ -230,10 +347,10 @@ async function loadProfilePage() {
                 </div>
                 <div class="profile-field">
                     <label>Account Balance</label>
-                    <input type="text" value="$${balance.toFixed(2)} USD" readonly style="background: linear-gradient(135deg, #e0f2fe, #fff); font-weight: bold; font-size: 18px;">
+                    <input type="text" value="$${balance.toFixed(2)} USD" readonly style="background: linear-gradient(135deg, #ecfdf5, #fff); font-weight: bold; font-size: 18px;">
                 </div>
-                <div style="margin-top: 32px; background: linear-gradient(115deg, #eef2ff, white); border-radius: 28px; padding: 24px;">
-                    <i class="fas fa-truck-fast" style="color: #0ea5e9; font-size: 24px;"></i>
+                <div style="margin-top: 32px; background: linear-gradient(115deg, #ecfdf5, white); border-radius: 28px; padding: 24px;">
+                    <i class="fas fa-truck-fast" style="color: #10b981; font-size: 24px;"></i>
                     <strong style="display: block; margin-top: 12px;">TRAX Smart Network</strong>
                     <p style="color: #475569; margin-top: 8px;">Real-time AI tracking, carbon-aware routing, and intelligent logistics management.</p>
                     <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -303,7 +420,7 @@ async function saveProfileChanges(e) {
     const password = document.getElementById('editPassword').value;
     
     if (!name || !email || !phone) {
-        alert('Please fill all fields');
+        showToast('Please fill all fields', 'error');
         return;
     }
     
@@ -316,10 +433,10 @@ async function saveProfileChanges(e) {
         currentUser = result.user;
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
         document.getElementById('userName').innerText = currentUser.name;
-        alert('Profile updated!');
+        showToast('Profile updated successfully! ✅', 'success');
         loadProfilePage();
     } catch (error) {
-        alert('Error: ' + error.message);
+        showToast('Error: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -478,7 +595,7 @@ async function trackShipment() {
     const trackingNumber = input?.value.trim();
     
     if (!trackingNumber) {
-        alert('Please enter a tracking number');
+        showToast('Please enter a tracking number', 'error');
         return;
     }
     
@@ -493,6 +610,7 @@ async function trackShipment() {
         saveTrackedShipment(trackingNumber, shipment);
         
         displayTrackingInfo(shipment, resultDiv);
+        showToast(`Tracking found for ${trackingNumber}`, 'success');
     } catch (error) {
         resultDiv.innerHTML = `
             <div class="tracking-card" style="background: linear-gradient(135deg, #991b1b, #7f1d1d); color: white;">
@@ -500,23 +618,65 @@ async function trackShipment() {
                 <p style="margin-top: 10px;">Please check the tracking number and try again.</p>
             </div>
         `;
+        showToast('Tracking number not found', 'error');
     } finally {
         showLoading(false);
     }
 }
 
+// Quick tracking from the welcome/landing screen (mirrors trackShipment, separate IDs)
+async function welcomeTrackShipment(trackingNumber) {
+    const input = document.getElementById('welcomeTrackInput');
+    const number = (trackingNumber || input?.value || '').trim();
+
+    if (!number) {
+        showToast('Please enter a tracking number', 'error');
+        return;
+    }
+
+    if (input) input.value = number;
+
+    const resultDiv = document.getElementById('welcomeTrackResult');
+    if (!resultDiv) return;
+
+    showLoading(true);
+    try {
+        const shipment = await apiRequest(`/track/${number}`, 'GET');
+
+        // Save to tracked history
+        saveTrackedShipment(number, shipment);
+
+        displayTrackingInfo(shipment, resultDiv);
+        resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        showToast(`Tracking found for ${number}`, 'success');
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="tracking-card" style="background: linear-gradient(135deg, #991b1b, #7f1d1d); color: white;">
+                <p><i class="fas fa-exclamation-triangle"></i> Error: ${error.message}</p>
+                <p style="margin-top: 10px;">Please check the tracking number and try again.</p>
+            </div>
+        `;
+        showToast('Tracking number not found', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// ==================== UPDATED REFRESH FUNCTION - FIXED ====================
 async function refreshTrackingData(trackingNumber) {
     showLoading(true);
     try {
-        await apiRequest(`/track/refresh/${trackingNumber}`, 'POST');
+        // Directly fetch fresh tracking data (no separate refresh endpoint needed)
         const shipment = await apiRequest(`/track/${trackingNumber}`, 'GET');
         
         // Update in tracked history
         saveTrackedShipment(trackingNumber, shipment);
         
+        // Display the updated tracking info
         displayTrackingInfo(shipment, document.getElementById('trackingResult'));
+        showToast('Tracking data refreshed ✅', 'success');
     } catch (error) {
-        alert('Error refreshing: ' + error.message);
+        showToast('Error refreshing: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -609,6 +769,7 @@ function removeFromHistory(trackingNumber) {
     trackedShipmentsHistory = trackedShipmentsHistory.filter(s => s.trackingNumber !== trackingNumber);
     localStorage.setItem('trackedShipmentsHistory', JSON.stringify(trackedShipmentsHistory));
     loadTrackedHistoryPage();
+    showToast('Removed from history', 'success');
 }
 
 function clearAllHistory() {
@@ -616,6 +777,7 @@ function clearAllHistory() {
         trackedShipmentsHistory = [];
         localStorage.setItem('trackedShipmentsHistory', JSON.stringify(trackedShipmentsHistory));
         loadTrackedHistoryPage();
+        showToast('History cleared', 'success');
     }
 }
 
@@ -722,7 +884,7 @@ async function createShipment(event) {
     const quantity = document.getElementById('quantity')?.value;
     
     if (!shipperName || !consigneeName || !description) {
-        alert('Please fill required fields');
+        showToast('Please fill required fields', 'error');
         return;
     }
     
@@ -731,11 +893,11 @@ async function createShipment(event) {
         const result = await apiRequest('/auth/create-shipment', 'POST', {
             shipperName, consigneeName, description, weight: weight || 1, quantity: quantity || 1
         });
-        alert(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCost: $${result.cost}\nBalance: $${result.balance}`);
+        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCost: $${result.cost}`, 'success');
         closeShipmentModal();
         loadDashboardContent();
     } catch (error) {
-        alert('Error: ' + error.message);
+        showToast('Error: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -753,10 +915,10 @@ async function addFunds(amount) {
     showLoading(true);
     try {
         const result = await apiRequest('/auth/add-funds', 'POST', { amount });
-        alert(result.message || `Added $${amount}`);
+        showToast(result.message || `Added $${amount}`, 'success');
         loadProfilePage();
     } catch (error) {
-        alert('Error: ' + error.message);
+        showToast('Error: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -820,14 +982,17 @@ function closeSupportModal() {
 async function submitTicket() {
     const subject = document.getElementById('ticketSubject')?.value;
     const message = document.getElementById('ticketMessage')?.value;
-    if (!subject || !message) return alert('Please fill all fields');
+    if (!subject || !message) {
+        showToast('Please fill all fields', 'error');
+        return;
+    }
     showLoading(true);
     try {
         const result = await apiRequest('/auth/support-ticket', 'POST', { subject, message });
-        alert(`Ticket ${result.ticketNumber} created!`);
+        showToast(`Ticket ${result.ticketNumber} created!`, 'success');
         closeSupportModal();
     } catch (error) {
-        alert('Error: ' + error.message);
+        showToast('Error: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -875,8 +1040,18 @@ document.addEventListener('DOMContentLoaded', () => {
         showWelcome();
     }
     
-    document.getElementById('getStartedBtn')?.addEventListener('click', showAuth);
+    document.getElementById('welcomeLoginBtn')?.addEventListener('click', () => showAuthTab('login'));
+    document.getElementById('welcomeSignupBtn')?.addEventListener('click', () => showAuthTab('signup'));
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
+
+    // Welcome screen quick tracking
+    document.getElementById('welcomeTrackBtn')?.addEventListener('click', () => welcomeTrackShipment());
+    document.getElementById('welcomeTrackInput')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') welcomeTrackShipment();
+    });
+    document.querySelectorAll('.welcome-try-link').forEach(btn => {
+        btn.addEventListener('click', () => welcomeTrackShipment(btn.dataset.number));
+    });
     
     // Auth tabs
     document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -893,8 +1068,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const email = document.getElementById('loginEmail').value;
         const password = document.getElementById('loginPassword').value;
-        if (email && password) login(email, password);
-        else alert('Enter email and password');
+        login(email, password);
     });
     
     // Signup form
@@ -904,9 +1078,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const email = document.getElementById('signupEmail').value;
         const phone = document.getElementById('signupPhone').value;
         const password = document.getElementById('signupPassword').value;
-        if (!name || !email || !phone || !password) alert('Fill all fields');
-        else if (password.length < 6) alert('Password min 6 characters');
-        else signup(name, email, phone, password);
+        signup(name, email, phone, password);
     });
     
     // Navigation

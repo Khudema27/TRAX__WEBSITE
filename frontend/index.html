@@ -21,15 +21,26 @@
 
 <!-- Welcome Screen -->
 <div id="welcomeScreen" class="welcome-screen">
-    <div class="welcome-content">
-        <div class="logo-animation">
-            <i class="fas fa-globe-asia"></i>
+    <nav class="welcome-nav">
+        <div class="welcome-nav-logo">
+            <span class="welcome-logo-text">ROUTE 3</span>
         </div>
-        <h1>Route 3 <span>TRAX</span></h1>
-        <p>AI-powered logistics | Real-time cargo intelligence</p>
-        <button id="getStartedBtn" class="btn-get-started">
-            Launch Dashboard <i class="fas fa-arrow-right"></i>
-        </button>
+        <div class="welcome-nav-actions">
+            <button type="button" id="welcomeLoginBtn" class="btn-nav-login">Login</button>
+            <button type="button" id="welcomeSignupBtn" class="btn-nav-signup">Sign Up</button>
+        </div>
+    </nav>
+
+    <div class="welcome-hero">
+        <h1 class="welcome-hero-title">Track Your ID</h1>
+        <p class="welcome-hero-subtitle">Enter your tracking ID below to trace it through Route3</p>
+
+        <div class="welcome-track-group">
+            <input type="text" id="welcomeTrackInput" placeholder="e.g. 1350215374" autocomplete="off">
+            <button type="button" id="welcomeTrackBtn"><i class="fas fa-search"></i> Track</button>
+        </div>
+
+        <div id="welcomeTrackResult" class="welcome-track-result"></div>
     </div>
 </div>
 
