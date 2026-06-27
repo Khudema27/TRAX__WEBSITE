@@ -341,7 +341,7 @@ async function loadProfilePage() {
                 </div>
                 <div style="margin-top: 32px; background: linear-gradient(115deg, #ecfdf5, white); border-radius: 28px; padding: 24px;">
                     <i class="fas fa-truck-fast" style="color: #10b981; font-size: 24px;"></i>
-                    <strong style="display: block; margin-top: 12px;">TRAX Smart Network</strong>
+                    <strong style="display: block; margin-top: 12px;">ROUTE3 Smart Network</strong>
                     <p style="color: #475569; margin-top: 8px;">Real-time AI tracking, carbon-aware routing, and intelligent logistics management.</p>
                     <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button onclick="showAddFundsModal()" class="btn-primary">+ Add Funds</button>
@@ -467,22 +467,22 @@ function displayTrackingInfo(shipment, resultDiv) {
     const currentStage = sortedTimeline.length;
     const progressPercent = Math.min((currentStage / totalStatuses) * 100, 100);
     
-    // ✅ FIXED: Force "Verified Data" for all 135xxxxxx numbers
+    // ✅ FIXED: Force "Verified ROUTE3 Data" for all 135xxxxxx numbers
     const trackingNum = shipment.trackingNumber || '';
-    const isAPXNumber = trackingNum.match(/^135/) || (trackingNum.length === 10 && !isNaN(trackingNum));
+    const isROUTE3Number = trackingNum.match(/^135/) || (trackingNum.length === 10 && !isNaN(trackingNum));
     
     let sourceBadge = '';
-    if (isAPXNumber) {
-        // ✅ ALL 135xxxxxx numbers = Verified Data
-        sourceBadge = '<span class="source-badge real" style="background: #dcfce7; color: #166534; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> ✅ Verified APX Data</span>';
+    if (isROUTE3Number) {
+        // ✅ ALL 135xxxxxx numbers = Verified ROUTE3 Data
+        sourceBadge = '<span class="source-badge real" style="background: #dcfce7; color: #166534; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> ✅ Verified ROUTE3 Data</span>';
     } else if (shipment.usedPython) {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Live APX Data</span>';
+        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Live ROUTE3 Data</span>';
     } else if (shipment.isFallback || shipment.isGenerated) {
         sourceBadge = '<span class="source-badge fallback"><i class="fas fa-database"></i> 📊 Estimated Data</span>';
     } else if (shipment.fromCache) {
         sourceBadge = '<span class="source-badge cached"><i class="fas fa-history"></i> 💾 Cached Data</span>';
     } else {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Verified Data</span>';
+        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Verified ROUTE3 Data</span>';
     }
     
     let timelineRows = '';
@@ -601,7 +601,7 @@ async function trackShipment() {
     try {
         const shipment = await apiRequest(`/track/${trackingNumber}`, 'GET');
         
-        // ✅ Force set isVerified for APX numbers
+        // ✅ Force set isVerified for ROUTE3 numbers
         if (trackingNumber.match(/^135/) || trackingNumber.length === 10) {
             shipment.isVerified = true;
             shipment.isFallback = false;

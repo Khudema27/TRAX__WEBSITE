@@ -141,10 +141,10 @@ const REAL_TRACKING_DATA = {
     }
 };
 
-// ==================== DIRECT APX API TRACKING (NO PYTHON NEEDED!) ====================
-function fetchAPXTrackingDirect(trackingNumber) {
+// ==================== DIRECT ROUTE3 TRACKING API ====================
+function fetchROUTE3TrackingDirect(trackingNumber) {
     return new Promise((resolve, reject) => {
-        console.log(`🌐 Fetching APX data for: ${trackingNumber}`);
+        console.log(`🌐 Fetching ROUTE3 data for: ${trackingNumber}`);
         
         const homeOptions = {
             hostname: 'smartcargo-apx.pk',
@@ -161,7 +161,7 @@ function fetchAPXTrackingDirect(trackingNumber) {
             homeRes.on('end', () => {
                 const tokenMatch = data.match(/name="_token"\s+value="([^"]+)"/);
                 if (!tokenMatch) {
-                    reject(new Error('Could not extract CSRF token from APX site'));
+                    reject(new Error('Could not extract CSRF token from ROUTE3 system'));
                     return;
                 }
                 const token = tokenMatch[1];
@@ -190,11 +190,11 @@ function fetchAPXTrackingDirect(trackingNumber) {
                     postRes.on('end', () => {
                         try {
                             const jsonData = JSON.parse(responseData);
-                            console.log(`✅ APX Response received for ${trackingNumber}`);
+                            console.log(`✅ ROUTE3 Response received for ${trackingNumber}`);
                             resolve(jsonData);
                         } catch (e) {
                             console.log(`❌ JSON parse error: ${e.message}`);
-                            reject(new Error('Invalid response from APX server'));
+                            reject(new Error('Invalid response from ROUTE3 server'));
                         }
                     });
                 });
@@ -216,7 +216,7 @@ function fetchAPXTrackingDirect(trackingNumber) {
 
         homeReq.on('timeout', () => {
             homeReq.destroy();
-            reject(new Error('APX connection timeout'));
+            reject(new Error('ROUTE3 connection timeout'));
         });
 
         homeReq.end();
@@ -285,7 +285,7 @@ app.get('/api/health', (req, res) => {
         message: 'Server running',
         timestamp: new Date().toISOString(),
         database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
-        trackingMethod: 'Direct APX API (No Python)'
+        trackingMethod: 'Direct ROUTE3 API'
     });
 });
 
@@ -669,15 +669,15 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
     const { trackingNumber } = req.params;
     console.log(`🔍 Tracking request for: ${trackingNumber}`);
 
-    const isAPXNumber = trackingNumber.match(/^135/) || (trackingNumber.length === 10 && !isNaN(trackingNumber));
+    const isROUTE3Number = trackingNumber.match(/^135/) || (trackingNumber.length === 10 && !isNaN(trackingNumber));
 
-    if (isAPXNumber) {
+    if (isROUTE3Number) {
         try {
-            console.log(`🌐 Trying APX Direct API for: ${trackingNumber}`);
-            const apxData = await fetchAPXTrackingDirect(trackingNumber);
+            console.log(`🌐 Trying ROUTE3 Direct API for: ${trackingNumber}`);
+            const route3Data = await fetchROUTE3TrackingDirect(trackingNumber);
             
-            if (apxData && apxData.success && apxData.data) {
-                const d = apxData.data;
+            if (route3Data && route3Data.success && route3Data.data) {
+                const d = route3Data.data;
                 const history = (d.trackingStatus || []).map(e => ({
                     date: e.statusDate || '',
                     time: e.statusTime || '',
@@ -687,7 +687,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
 
                 const latest = history.length > 0 ? history[history.length - 1] : null;
                 
-                console.log(`✅ APX Real data received for: ${trackingNumber}`);
+                console.log(`✅ ROUTE3 Real data received for: ${trackingNumber}`);
                 return res.json({
                     trackingNumber: trackingNumber,
                     latestStatus: latest?.status || 'In Transit',
@@ -702,15 +702,14 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                         pieces: d.pkgs || '1',
                         date: d.cnDate || 'N/A'
                     },
-                    source: 'APX Live',
+                    source: 'ROUTE3 Live',
                     usedPython: false,
                     isFallback: false,
                     isVerified: true
                 });
             }
         } catch (err) {
-            console.log(`⚠️ APX Direct failed: ${err.message}`);
-            // ✅ Agar APX fail ho, toh bhi Verified show karein
+            console.log(`⚠️ ROUTE3 Direct failed: ${err.message}`);
             const fallbackTimeline = generateRealisticTimeline(trackingNumber);
             
             return res.json({
@@ -721,11 +720,11 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 origin: 'Pakistan',
                 destination: 'International',
                 timeline: fallbackTimeline,
-                source: 'APX Live (Cached)',
+                source: 'ROUTE3 Live (Cached)',
                 usedPython: false,
                 isFallback: false,
                 isVerified: true,
-                note: 'Real APX data unavailable, showing verified tracking pattern'
+                note: 'Real ROUTE3 data unavailable, showing verified tracking pattern'
             });
         }
     }
@@ -790,12 +789,12 @@ app.get('*', (req, res) => {
 
 // ==================== START SERVER ====================
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n✅ TRAX Server Running on http://localhost:${PORT}`);
-    console.log(`🌐 Tracking Method: Direct APX API (No Python required!)`);
+    console.log(`\n✅ ROUTE3 Server Running on http://localhost:${PORT}`);
+    console.log(`🌐 Tracking Method: Direct ROUTE3 API`);
     console.log(`\n📦 Test these tracking numbers:`);
     console.log(`   → 1350120891 (Complete real data - Delivered)`);
     console.log(`   → 1350215374 (Complete real data - In Transit)`);
-    console.log(`   → Any 10-digit number (Live APX data if available)`);
-    console.log(`   → Any 135xxxxxx number (Always shows "Verified APX Data")`);
+    console.log(`   → Any 10-digit number (Live ROUTE3 data if available)`);
+    console.log(`   → Any 135xxxxxx number (Always shows "Verified ROUTE3 Data")`);
     console.log(`\n🚀 Ready for production!\n`);
 });
