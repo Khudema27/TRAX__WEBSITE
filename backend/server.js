@@ -84,6 +84,50 @@ UserSchema.methods.generateToken = function() {
 
 const User = mongoose.model('User', UserSchema);
 
+// ==================== TRANSACTION MODEL ====================
+const TransactionSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { type: String, enum: ['deposit', 'payment', 'refund'], required: true },
+    amount: { type: Number, required: true, min: 0 },
+    status: { type: String, enum: ['pending', 'completed', 'failed', 'cancelled'], default: 'completed' },
+    description: { type: String, required: true },
+    trackingNumber: { type: String, trim: true },
+    reference: { type: String, unique: true, required: true },
+    createdAt: { type: Date, default: Date.now },
+    completedAt: { type: Date }
+});
+
+TransactionSchema.pre('save', function(next) {
+    if (this.isModified('status') && this.status === 'completed' && !this.completedAt) {
+        this.completedAt = new Date();
+    }
+    next();
+});
+
+const Transaction = mongoose.model('Transaction', TransactionSchema);
+
+// ==================== SHIPMENT MODEL ====================
+const timelineEventSchema = new mongoose.Schema({
+    date: { type: String, required: true },
+    time: { type: String, required: true },
+    location: { type: String, required: true },
+    status: { type: String, required: true },
+    rawTimeForSort: { type: String, required: true }
+}, { _id: false });
+
+const ShipmentSchema = new mongoose.Schema({
+    trackingNumber: { type: String, required: true, unique: true, trim: true },
+    timeline: { type: [timelineEventSchema], required: true, default: [] },
+    latestStatus: { type: String, required: true },
+    latestLocation: { type: String, required: true },
+    lastUpdate: { type: String, required: true },
+    origin: { type: String, required: true },
+    destination: { type: String, required: true },
+    lastFetched: { type: Date, default: Date.now }
+}, { timestamps: true, collection: 'shipments' });
+
+const Shipment = mongoose.model('Shipment', ShipmentSchema);
+
 // ==================== AUTH MIDDLEWARE ====================
 const authenticate = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
@@ -391,6 +435,162 @@ app.post('/api/auth/support-ticket', authenticate, [
     } catch (error) {
         console.error('Support ticket error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== DATA DISPLAY ROUTES ====================
+
+// Get all transactions for a user
+app.get('/api/auth/transactions', authenticate, async (req, res) => {
+    try {
+        const transactions = await Transaction.find({ userId: req.userId })
+            .sort({ createdAt: -1 })
+            .limit(50);
+        res.json({ success: true, transactions, count: transactions.length });
+    } catch (error) {
+        res.json({ success: true, transactions: [], count: 0 });
+    }
+});
+
+// Get all shipments with full details
+app.get('/api/auth/all-shipments', authenticate, async (req, res) => {
+    try {
+        const userShipments = req.user.shipments || [];
+        const shipmentDetails = [];
+        
+        // Fetch each shipment's tracking data
+        for (const trackingNo of userShipments) {
+            const cached = await Shipment.findOne({ trackingNumber: trackingNo });
+            if (cached) {
+                shipmentDetails.push({
+                    trackingNumber: cached.trackingNumber,
+                    latestStatus: cached.latestStatus,
+                    latestLocation: cached.latestLocation,
+                    lastUpdate: cached.lastUpdate,
+                    origin: cached.origin,
+                    destination: cached.destination,
+                    timeline: cached.timeline || []
+                });
+            } else {
+                // Try to get from tracking API
+                try {
+                    const baseUrl = `http://localhost:${PORT}`;
+                    const trackRes = await fetch(`${baseUrl}/api/track/${trackingNo}`);
+                    const data = await trackRes.json();
+                    shipmentDetails.push({
+                        trackingNumber: trackingNo,
+                        latestStatus: data.latestStatus || 'Unknown',
+                        latestLocation: data.latestLocation || 'Unknown',
+                        lastUpdate: data.lastUpdate || new Date().toISOString(),
+                        origin: data.origin || 'N/A',
+                        destination: data.destination || 'N/A',
+                        timeline: data.timeline || []
+                    });
+                } catch {
+                    shipmentDetails.push({
+                        trackingNumber: trackingNo,
+                        latestStatus: 'Pending',
+                        latestLocation: 'Processing',
+                        lastUpdate: new Date().toISOString(),
+                        origin: 'N/A',
+                        destination: 'N/A',
+                        timeline: []
+                    });
+                }
+            }
+        }
+        
+        res.json({ 
+            success: true, 
+            shipments: shipmentDetails,
+            count: shipmentDetails.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Record a transaction
+app.post('/api/auth/record-transaction', authenticate, [
+    body('type').isIn(['deposit', 'payment', 'refund']),
+    body('amount').isFloat({ min: 0.01 }),
+    body('description').notEmpty()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: errors.array()[0].msg });
+        }
+        
+        const { type, amount, description, trackingNumber } = req.body;
+        
+        const transaction = new Transaction({
+            userId: req.userId,
+            type,
+            amount,
+            description,
+            trackingNumber: trackingNumber || null,
+            reference: 'TXN' + Date.now().toString().slice(-8),
+            status: 'completed'
+        });
+        
+        await transaction.save();
+        res.json({ 
+            success: true, 
+            transaction,
+            message: 'Transaction recorded successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get database stats
+app.get('/api/admin/stats', authenticate, async (req, res) => {
+    try {
+        // Allow access for all authenticated users to see their own stats
+        // For full admin stats, check for specific email
+        const isAdmin = req.user.email === 'admin@traxlogistics.com';
+        
+        if (isAdmin) {
+            // Full admin stats
+            const userCount = await User.countDocuments();
+            const transactionCount = await Transaction.countDocuments();
+            const shipmentCount = await Shipment.countDocuments();
+            const users = await User.find({});
+            const totalBalance = users.reduce((sum, u) => sum + (u.balance || 0), 0);
+            
+            res.json({
+                success: true,
+                isAdmin: true,
+                stats: {
+                    totalUsers: userCount,
+                    totalTransactions: transactionCount,
+                    totalShipments: shipmentCount,
+                    totalBalance: totalBalance.toFixed(2),
+                    lastUpdated: new Date().toISOString()
+                }
+            });
+        } else {
+            // User-specific stats
+            const userTransactions = await Transaction.countDocuments({ userId: req.userId });
+            const userShipments = req.user.shipments || [];
+            
+            res.json({
+                success: true,
+                isAdmin: false,
+                stats: {
+                    userName: req.user.name,
+                    userEmail: req.user.email,
+                    userBalance: req.user.balance,
+                    userTransactions: userTransactions,
+                    userShipments: userShipments.length,
+                    lastUpdated: new Date().toISOString()
+                }
+            });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

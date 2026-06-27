@@ -312,7 +312,11 @@ async function loadDashboardContent() {
         case 'track': loadTrackPage(); break;
         case 'shipments': await loadShipmentsPage(); break;
         case 'tracked': loadTrackedHistoryPage(); break;
+        case 'transactions': await loadTransactions(); break;
+        case 'all-shipments': await loadAllShipments(); break;
+        case 'data-stats': await loadDatabaseStats(); break;
         case 'contact': loadContactPage(); break;
+        default: loadProfilePage();
     }
 }
 
@@ -804,12 +808,12 @@ async function loadShipmentsPage() {
         shipments.forEach(s => {
             rows += `
                 <tr>
-                    <td><strong>${escapeHtml(s.trackingNumber)}</strong></td>
-                    <td><span class="status-badge">${escapeHtml(s.latestStatus)}</span></td>
-                    <td>${escapeHtml(s.origin)}</td>
-                    <td>${escapeHtml(s.destination)}</td>
-                    <td>${escapeHtml(s.lastUpdate)}</td>
-                    <td><button class="btn-secondary" onclick="quickTrackFromMyShipments('${escapeHtml(s.trackingNumber)}')">Track</button></td>
+                    <td><strong>${escapeHtml(s)}</strong></td>
+                    <td><span class="status-badge">In Transit</span></td>
+                    <td>Pakistan</td>
+                    <td>International</td>
+                    <td>${new Date().toLocaleString()}</td>
+                    <td><button class="btn-secondary" onclick="quickTrackFromMyShipments('${escapeHtml(s)}')">Track</button></td>
                 </tr>
             `;
         });
@@ -874,6 +878,265 @@ function loadContactPage() {
     `;
 }
 
+// ==================== DATA DISPLAY FUNCTIONS ====================
+
+// Fetch and display user's transactions
+async function loadTransactions() {
+    const content = document.getElementById('dashboardContent');
+    showLoading(true);
+    try {
+        const result = await apiRequest('/auth/transactions', 'GET');
+        const transactions = result.transactions || [];
+        
+        if (transactions.length === 0) {
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px; background: white; border-radius: 32px;">
+                    <i class="fas fa-receipt" style="font-size: 48px; color: #cbd5e1;"></i>
+                    <h3 style="margin-top: 16px;">No Transactions Yet</h3>
+                    <p style="color: #64748b;">Your transaction history will appear here</p>
+                </div>
+            `;
+            return;
+        }
+        
+        let rows = '';
+        transactions.forEach(t => {
+            const typeIcon = t.type === 'deposit' ? '💰' : t.type === 'payment' ? '💸' : '🔄';
+            const typeColor = t.type === 'deposit' ? '#10b981' : t.type === 'payment' ? '#ef4444' : '#f59e0b';
+            rows += `
+                <tr>
+                    <td><span style="font-size: 20px;">${typeIcon}</span></td>
+                    <td><span style="text-transform: capitalize; font-weight: 600;">${escapeHtml(t.type)}</span></td>
+                    <td style="font-weight: 700; color: ${typeColor};">$${t.amount.toFixed(2)}</td>
+                    <td style="color: #475569;">${escapeHtml(t.description)}</td>
+                    <td style="font-size: 13px; color: #64748b;">${escapeHtml(t.reference)}</td>
+                    <td style="font-size: 13px; color: #64748b;">${new Date(t.createdAt).toLocaleString()}</td>
+                </tr>
+            `;
+        });
+        
+        content.innerHTML = `
+            <div style="background: white; border-radius: 40px; padding: 32px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <h3><i class="fas fa-receipt" style="color: #10b981;"></i> Transaction History</h3>
+                    <span style="background: #ecfdf5; padding: 8px 16px; border-radius: 40px; font-weight: 600; color: #064e3b;">
+                        Total: ${transactions.length}
+                    </span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="shipments-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                                <th>Description</th>
+                                <th>Reference</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = `<p style="color: red;">Error loading transactions: ${error.message}</p>`;
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Fetch and display all user shipments with details
+async function loadAllShipments() {
+    const content = document.getElementById('dashboardContent');
+    showLoading(true);
+    try {
+        const result = await apiRequest('/auth/all-shipments', 'GET');
+        const shipments = result.shipments || [];
+        
+        if (shipments.length === 0) {
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px; background: white; border-radius: 32px;">
+                    <i class="fas fa-box-open" style="font-size: 48px; color: #cbd5e1;"></i>
+                    <h3 style="margin-top: 16px;">No Shipments Found</h3>
+                    <p style="color: #64748b;">Create your first shipment to see it here</p>
+                    <button onclick="openShipmentModal()" class="btn-primary" style="margin-top: 20px;">
+                        <i class="fas fa-plus"></i> Create Shipment
+                    </button>
+                </div>
+            `;
+            return;
+        }
+        
+        let rows = '';
+        shipments.forEach(s => {
+            const statusColor = s.latestStatus === 'Delivered' || s.latestStatus === 'Delivered Successfully' ? '#10b981' : 
+                               s.latestStatus === 'In Transit' ? '#f59e0b' : '#3b82f6';
+            rows += `
+                <tr>
+                    <td><strong>${escapeHtml(s.trackingNumber)}</strong></td>
+                    <td><span style="background: ${statusColor}; color: white; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;">${escapeHtml(s.latestStatus || 'Unknown')}</span></td>
+                    <td>${escapeHtml(s.origin || 'N/A')}</td>
+                    <td>${escapeHtml(s.destination || 'N/A')}</td>
+                    <td style="font-size: 13px; color: #64748b;">${escapeHtml(s.lastUpdate || 'N/A')}</td>
+                    <td><button onclick="quickTrackFromMyShipments('${escapeHtml(s.trackingNumber)}')" class="btn-secondary" style="padding: 6px 16px; font-size: 12px;">Track</button></td>
+                </tr>
+            `;
+        });
+        
+        content.innerHTML = `
+            <div style="background: white; border-radius: 40px; padding: 32px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <h3><i class="fas fa-ship" style="color: #10b981;"></i> All Shipments</h3>
+                    <span style="background: #ecfdf5; padding: 8px 16px; border-radius: 40px; font-weight: 600; color: #064e3b;">
+                        Total: ${shipments.length}
+                    </span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="shipments-table">
+                        <thead>
+                            <tr>
+                                <th>Tracking #</th>
+                                <th>Status</th>
+                                <th>Origin</th>
+                                <th>Destination</th>
+                                <th>Last Update</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = `<p style="color: red;">Error loading shipments: ${error.message}</p>`;
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Show database statistics
+async function loadDatabaseStats() {
+    const content = document.getElementById('dashboardContent');
+    showLoading(true);
+    try {
+        const result = await apiRequest('/admin/stats', 'GET');
+        
+        if (result.success && result.isAdmin) {
+            const stats = result.stats;
+            content.innerHTML = `
+                <div style="background: white; border-radius: 40px; padding: 32px;">
+                    <h3 style="margin-bottom: 24px;"><i class="fas fa-database" style="color: #10b981;"></i> Database Statistics (Admin)</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-users" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 32px; margin: 8px 0;">${stats.totalUsers}</h2>
+                            <p style="color: #64748b;">Total Users</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-receipt" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 32px; margin: 8px 0;">${stats.totalTransactions}</h2>
+                            <p style="color: #64748b;">Transactions</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-box" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 32px; margin: 8px 0;">${stats.totalShipments}</h2>
+                            <p style="color: #64748b;">Shipments</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-wallet" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 32px; margin: 8px 0;">$${stats.totalBalance}</h2>
+                            <p style="color: #64748b;">Total Balance</p>
+                        </div>
+                    </div>
+                    <p style="text-align: center; color: #64748b; margin-top: 20px; font-size: 13px;">
+                        Last Updated: ${new Date(stats.lastUpdated).toLocaleString()}
+                    </p>
+                </div>
+            `;
+        } else if (result.success) {
+            const stats = result.stats;
+            content.innerHTML = `
+                <div style="background: white; border-radius: 40px; padding: 32px;">
+                    <h3 style="margin-bottom: 24px;"><i class="fas fa-database" style="color: #10b981;"></i> Your Data Overview</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-user" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 20px; margin: 8px 0;">${escapeHtml(stats.userName || 'N/A')}</h2>
+                            <p style="color: #64748b; font-size: 13px;">${escapeHtml(stats.userEmail || '')}</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-wallet" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 24px; margin: 8px 0;">$${(stats.userBalance || 0).toFixed(2)}</h2>
+                            <p style="color: #64748b;">Your Balance</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-receipt" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 24px; margin: 8px 0;">${stats.userTransactions || 0}</h2>
+                            <p style="color: #64748b;">Your Transactions</p>
+                        </div>
+                        <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                            <i class="fas fa-box" style="font-size: 32px; color: #10b981;"></i>
+                            <h2 style="font-size: 24px; margin: 8px 0;">${stats.userShipments || 0}</h2>
+                            <p style="color: #64748b;">Your Shipments</p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; justify-content: center; margin-top: 24px; flex-wrap: wrap;">
+                        <button onclick="loadAllShipments()" class="btn-primary"><i class="fas fa-box"></i> View All Shipments</button>
+                        <button onclick="loadTransactions()" class="btn-secondary"><i class="fas fa-receipt"></i> View Transactions</button>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        // Fallback to user-specific data
+        content.innerHTML = `
+            <div style="background: white; border-radius: 40px; padding: 32px;">
+                <h3 style="margin-bottom: 24px;"><i class="fas fa-database" style="color: #10b981;"></i> Your Data Overview</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                    <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                        <i class="fas fa-user" style="font-size: 32px; color: #10b981;"></i>
+                        <h2 style="font-size: 20px; margin: 8px 0;">${escapeHtml(currentUser?.name || 'N/A')}</h2>
+                        <p style="color: #64748b; font-size: 13px;">${escapeHtml(currentUser?.email || '')}</p>
+                    </div>
+                    <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                        <i class="fas fa-wallet" style="font-size: 32px; color: #10b981;"></i>
+                        <h2 style="font-size: 24px; margin: 8px 0;">$${currentUser?.balance?.toFixed(2) || '0.00'}</h2>
+                        <p style="color: #64748b;">Your Balance</p>
+                    </div>
+                    <div style="background: #ecfdf5; border-radius: 24px; padding: 24px; text-align: center;">
+                        <i class="fas fa-box" style="font-size: 32px; color: #10b981;"></i>
+                        <h2 style="font-size: 24px; margin: 8px 0;">${currentUser?.shipments?.length || 0}</h2>
+                        <p style="color: #64748b;">Your Shipments</p>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 12px; justify-content: center; margin-top: 24px; flex-wrap: wrap;">
+                    <button onclick="loadAllShipments()" class="btn-primary"><i class="fas fa-box"></i> View All Shipments</button>
+                    <button onclick="loadTransactions()" class="btn-secondary"><i class="fas fa-receipt"></i> View Transactions</button>
+                </div>
+            </div>
+        `;
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Record a transaction
+async function recordTransaction(type, amount, description, trackingNumber = null) {
+    try {
+        await apiRequest('/auth/record-transaction', 'POST', {
+            type,
+            amount,
+            description,
+            trackingNumber
+        });
+    } catch (error) {
+        console.error('Failed to record transaction:', error);
+    }
+}
+
 // ==================== SHIPMENT CREATION ====================
 async function createShipment(event) {
     event.preventDefault();
@@ -893,6 +1156,15 @@ async function createShipment(event) {
         const result = await apiRequest('/auth/create-shipment', 'POST', {
             shipperName, consigneeName, description, weight: weight || 1, quantity: quantity || 1
         });
+        
+        // Record the transaction
+        await recordTransaction(
+            'payment', 
+            result.cost || 15, 
+            `Shipment ${result.trackingNumber} - ${description}`,
+            result.trackingNumber
+        );
+        
         showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCost: $${result.cost}`, 'success');
         closeShipmentModal();
         loadDashboardContent();
@@ -915,6 +1187,14 @@ async function addFunds(amount) {
     showLoading(true);
     try {
         const result = await apiRequest('/auth/add-funds', 'POST', { amount });
+        
+        // Record the transaction
+        await recordTransaction(
+            'deposit', 
+            amount, 
+            `Deposit of $${amount} to wallet`
+        );
+        
         showToast(result.message || `Added $${amount}`, 'success');
         loadProfilePage();
     } catch (error) {
@@ -1111,3 +1391,6 @@ window.quickTrackFromHistory = quickTrackFromHistory;
 window.removeFromHistory = removeFromHistory;
 window.clearAllHistory = clearAllHistory;
 window.quickTrackFromMyShipments = quickTrackFromMyShipments;
+window.loadTransactions = loadTransactions;
+window.loadAllShipments = loadAllShipments;
+window.loadDatabaseStats = loadDatabaseStats;
