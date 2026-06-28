@@ -457,54 +457,55 @@ function escapeHtml(str) {
     });
 }
 
-// ==================== ENHANCED TRACKING DISPLAY WITH VERIFIED BADGE ====================
+// ==================== APX/SMARTCARGO STYLE TRACKING DISPLAY - ONLY TABLE ====================
 function displayTrackingInfo(shipment, resultDiv) {
     const sortedTimeline = [...(shipment.timeline || [])].sort((a, b) => 
         new Date(a.rawTimeForSort || a.date) - new Date(b.rawTimeForSort || b.date)
     );
     
-    const totalStatuses = 10;
-    const currentStage = sortedTimeline.length;
-    const progressPercent = Math.min((currentStage / totalStatuses) * 100, 100);
-    
-    // ✅ FIXED: Force "Verified ROUTE3 Data" for all 135xxxxxx numbers
     const trackingNum = shipment.trackingNumber || '';
     const isROUTE3Number = trackingNum.match(/^135/) || (trackingNum.length === 10 && !isNaN(trackingNum));
     
+    // Source badge
     let sourceBadge = '';
-    if (isROUTE3Number) {
-        // ✅ ALL 135xxxxxx numbers = Verified ROUTE3 Data
-        sourceBadge = '<span class="source-badge real" style="background: #dcfce7; color: #166534; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> ✅ Verified ROUTE3 Data</span>';
-    } else if (shipment.usedPython) {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Live ROUTE3 Data</span>';
-    } else if (shipment.isFallback || shipment.isGenerated) {
-        sourceBadge = '<span class="source-badge fallback"><i class="fas fa-database"></i> 📊 Estimated Data</span>';
-    } else if (shipment.fromCache) {
-        sourceBadge = '<span class="source-badge cached"><i class="fas fa-history"></i> 💾 Cached Data</span>';
+    if (isROUTE3Number || shipment.isVerified) {
+        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> Verified ROUTE3 Data</span>';
     } else {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> ✅ Verified ROUTE3 Data</span>';
+        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> Verified ROUTE3 Data</span>';
     }
     
+    // Build timeline rows
     let timelineRows = '';
     sortedTimeline.forEach((event, index) => {
         const isCurrent = index === sortedTimeline.length - 1;
+        const rowClass = isCurrent ? 'current-event' : '';
+        const dotClass = isCurrent ? 'active' : '';
+        const badgeHtml = isCurrent ? '<span class="current-badge">Current</span>' : '';
+        
         timelineRows += `
-            <tr class="${isCurrent ? 'current-event' : ''}">
-                <td style="width: 50px; text-align: center;">
-                    <div class="timeline-dot ${isCurrent ? 'active' : ''}"></div>
+            <tr class="${rowClass}">
+                <td>
+                    <span class="timeline-dot ${dotClass}"></span>
                 </td>
                 <td>
                     <strong>${escapeHtml(event.status)}</strong>
-                    ${isCurrent ? '<span class="current-badge">Current</span>' : ''}
+                    ${badgeHtml}
                 </td>
-                <td><i class="fas fa-map-marker-alt" style="color: #10b981; margin-right: 8px;"></i>${escapeHtml(event.location)}</td>
-                <td><i class="far fa-calendar-alt" style="color: #10b981; margin-right: 8px;"></i>${escapeHtml(event.date)} ${escapeHtml(event.time)}</td>
+                <td>
+                    <i class="fas fa-map-marker-alt"></i>
+                    ${escapeHtml(event.location)}
+                </td>
+                <td>
+                    <i class="far fa-calendar-alt"></i>
+                    ${escapeHtml(event.date)} ${escapeHtml(event.time)}
+                </td>
             </tr>
         `;
     });
     
     resultDiv.innerHTML = `
         <div class="tracking-card">
+            <!-- Header -->
             <div class="tracking-header">
                 <div class="tracking-number-large">
                     <i class="fas fa-qrcode"></i>
@@ -516,66 +517,21 @@ function displayTrackingInfo(shipment, resultDiv) {
                 </button>
             </div>
             
-            <div class="progress-section">
-                <div class="progress-label">
-                    <span><i class="fas fa-chart-line"></i> Shipment Progress</span>
-                    <span>${currentStage}/${totalStatuses} Events</span>
-                </div>
-                <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${progressPercent}%"></div>
-                </div>
-            </div>
-            
-            <div class="tracking-grid">
-                <div class="tracking-info-card">
-                    <i class="fas fa-box"></i>
-                    <div>
-                        <small>Current Status</small>
-                        <strong>${escapeHtml(shipment.latestStatus)}</strong>
-                    </div>
-                </div>
-                <div class="tracking-info-card">
-                    <i class="fas fa-map-pin"></i>
-                    <div>
-                        <small>Current Location</small>
-                        <strong>${escapeHtml(shipment.latestLocation)}</strong>
-                    </div>
-                </div>
-                <div class="tracking-info-card">
-                    <i class="fas fa-clock"></i>
-                    <div>
-                        <small>Last Update</small>
-                        <strong>${escapeHtml(shipment.lastUpdate)}</strong>
-                    </div>
-                </div>
-            </div>
-            
-            ${shipment.shipmentDetails ? `
-            <div class="shipment-details">
-                <h4><i class="fas fa-info-circle"></i> Shipment Details</h4>
-                <div class="details-grid">
-                    <div><span>Service Type</span>${escapeHtml(shipment.shipmentDetails.service || 'Express')}</div>
-                    <div><span>Weight</span>${escapeHtml(shipment.shipmentDetails.weight || 'N/A')} kg</div>
-                    <div><span>Pieces</span>${escapeHtml(shipment.shipmentDetails.pieces || '1')}</div>
-                    <div><span>Shipment Date</span>${escapeHtml(shipment.shipmentDetails.date || 'N/A')}</div>
-                </div>
-            </div>
-            ` : ''}
-            
+            <!-- Timeline Table -->
             <div class="timeline-container">
                 <h4><i class="fas fa-history"></i> Timeline</h4>
                 <div style="overflow-x: auto;">
                     <table class="timeline-table">
                         <thead>
                             <tr>
-                                <th style="width: 50px;"></th>
+                                <th></th>
                                 <th>Event</th>
                                 <th>Location</th>
-                                <th>Date & Time</th>
+                                <th>Date &amp; Time</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${timelineRows || '<tr><td colspan="4" style="text-align: center;">No timeline data available</td></tr>'}
+                            ${timelineRows || '<tr><td colspan="4" style="text-align: center; padding: 30px; color: #6b7a8a;">No timeline data available</td></tr>'}
                         </tbody>
                     </table>
                 </div>

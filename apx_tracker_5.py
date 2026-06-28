@@ -3,6 +3,17 @@ APX Logistics Shipment Tracker
 ================================
 Calls https://smartcargo-apx.pk:8080/gettracking directly.
 No browser required — just requests.
+
+Requirements:
+    pip install requests --break-system-packages
+
+Usage (CLI):
+    python apx_tracker.py                   # default tracking number
+    python apx_tracker.py 9876543210        # your own number
+
+Usage (library):
+    from apx_tracker import track
+    data = track("1350215374")
 """
 
 import sys
@@ -13,8 +24,8 @@ from html.parser import HTMLParser
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-BASE_URL = "https://smartcargo-apx.pk:8080"
-API_ENDPOINT = f"{BASE_URL}/gettracking"
+BASE_URL       = "https://smartcargo-apx.pk:8080"
+API_ENDPOINT   = f"{BASE_URL}/gettracking"
 DEFAULT_NUMBER = "1350215374"
 
 
@@ -36,6 +47,16 @@ def _get_token(session: requests.Session) -> str:
 def track(tracking_number: str = DEFAULT_NUMBER) -> dict:
     """
     Fetch tracking data for *tracking_number*.
+
+    Returns a dict with keys:
+        tracking_number  – the queried number
+        success          – bool
+        shipper          – dict (name, city, country)
+        consignee        – dict (name, city, country, zip)
+        shipment         – dict (date, pieces, weight, unit, service, tracking_no)
+        latest_status    – dict (date, time, status, location)
+        history          – list of dicts [{date, time, status, location}, ...]
+        raw              – the full original API response
     """
     session = requests.Session()
     token = _get_token(session)
