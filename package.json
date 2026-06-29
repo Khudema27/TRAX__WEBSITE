@@ -16,7 +16,8 @@
     "express-rate-limit": "^8.5.2",
     "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^8.24.1"
+    "mongoose": "^8.24.1",
+    "python-shell": "^5.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

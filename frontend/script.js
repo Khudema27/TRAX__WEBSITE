@@ -457,24 +457,29 @@ function escapeHtml(str) {
     });
 }
 
-// ==================== APX/SMARTCARGO STYLE TRACKING DISPLAY - ONLY TABLE ====================
+// ==================== PROFESSIONAL TRACKING DISPLAY ====================
 function displayTrackingInfo(shipment, resultDiv) {
     const sortedTimeline = [...(shipment.timeline || [])].sort((a, b) => 
         new Date(a.rawTimeForSort || a.date) - new Date(b.rawTimeForSort || b.date)
     );
     
-    const trackingNum = shipment.trackingNumber || '';
-    const isROUTE3Number = trackingNum.match(/^135/) || (trackingNum.length === 10 && !isNaN(trackingNum));
+    // ========== SOURCE BADGE - reflects the REAL verification status ==========
+    const isVerifiedReal = shipment.isVerified === true || shipment.isRealData === true;
+    let sourceBadge = isVerifiedReal
+        ? `
+        <span class="source-badge real">
+            <i class="fas fa-check-circle"></i> 
+            Verified Data
+        </span>
+        `
+        : `
+        <span class="source-badge" style="background:#fef3c7;color:#92400e;">
+            <i class="fas fa-exclamation-triangle"></i> 
+            Unverified
+        </span>
+        `;
     
-    // Source badge
-    let sourceBadge = '';
-    if (isROUTE3Number || shipment.isVerified) {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> Verified ROUTE3 Data</span>';
-    } else {
-        sourceBadge = '<span class="source-badge real"><i class="fas fa-check-circle"></i> Verified ROUTE3 Data</span>';
-    }
-    
-    // Build timeline rows
+    // ========== TIMELINE TABLE ==========
     let timelineRows = '';
     sortedTimeline.forEach((event, index) => {
         const isCurrent = index === sortedTimeline.length - 1;
@@ -503,6 +508,7 @@ function displayTrackingInfo(shipment, resultDiv) {
         `;
     });
     
+    // ========== COMPLETE HTML - Only tracking number, badge, refresh, and timeline ==========
     resultDiv.innerHTML = `
         <div class="tracking-card">
             <!-- Header -->
@@ -519,7 +525,7 @@ function displayTrackingInfo(shipment, resultDiv) {
             
             <!-- Timeline Table -->
             <div class="timeline-container">
-                <h4><i class="fas fa-history"></i> Timeline</h4>
+                <h4><i class="fas fa-history"></i> Tracking History</h4>
                 <div style="overflow-x: auto;">
                     <table class="timeline-table">
                         <thead>
@@ -557,12 +563,6 @@ async function trackShipment() {
     try {
         const shipment = await apiRequest(`/track/${trackingNumber}`, 'GET');
         
-        // ✅ Force set isVerified for ROUTE3 numbers
-        if (trackingNumber.match(/^135/) || trackingNumber.length === 10) {
-            shipment.isVerified = true;
-            shipment.isFallback = false;
-        }
-        
         saveTrackedShipment(trackingNumber, shipment);
         displayTrackingInfo(shipment, resultDiv);
         showToast(`Tracking found for ${trackingNumber}`, 'success');
@@ -598,11 +598,6 @@ async function welcomeTrackShipment(trackingNumber) {
     try {
         const shipment = await apiRequest(`/track/${number}`, 'GET');
 
-        if (number.match(/^135/) || number.length === 10) {
-            shipment.isVerified = true;
-            shipment.isFallback = false;
-        }
-
         saveTrackedShipment(number, shipment);
         displayTrackingInfo(shipment, resultDiv);
         resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -626,14 +621,30 @@ async function refreshTrackingData(trackingNumber) {
     try {
         const shipment = await apiRequest(`/track/${trackingNumber}`, 'GET');
         
-        if (trackingNumber.match(/^135/) || trackingNumber.length === 10) {
-            shipment.isVerified = true;
-            shipment.isFallback = false;
-        }
-        
         saveTrackedShipment(trackingNumber, shipment);
-        displayTrackingInfo(shipment, document.getElementById('trackingResult'));
-        showToast('Tracking data refreshed ✅', 'success');
+        
+        // Find the tracking result container - check both possible locations
+        const resultDiv = document.getElementById('trackingResult') || document.getElementById('welcomeTrackResult');
+        
+        if (resultDiv) {
+            displayTrackingInfo(shipment, resultDiv);
+            showToast('Tracking data refreshed ✅', 'success');
+        } else {
+            // Navigate to track page if no result container found
+            const trackBtn = document.querySelector('.nav-btn[data-page="track"]');
+            if (trackBtn) {
+                trackBtn.click();
+                setTimeout(() => {
+                    const newResultDiv = document.getElementById('trackingResult');
+                    if (newResultDiv) {
+                        displayTrackingInfo(shipment, newResultDiv);
+                        showToast('Tracking data refreshed ✅', 'success');
+                    }
+                }, 300);
+            } else {
+                showToast('Please go to Track Shipment page to refresh', 'error');
+            }
+        }
     } catch (error) {
         showToast('Error refreshing: ' + error.message, 'error');
     } finally {

@@ -1691,3 +1691,318 @@ textarea {
         height: 8px;
     }
 }
+
+/* ==================== PROFESSIONAL TRACKING DISPLAY ==================== */
+
+/* Shipment Summary */
+.shipment-summary {
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+    border-radius: 16px;
+    padding: 20px 24px;
+    margin: 16px 0;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.summary-label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-label i {
+    margin-right: 6px;
+    color: #10b981;
+}
+
+.summary-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+/* Shipper & Consignee */
+.parties-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+}
+
+.party-card {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px 20px;
+    border-left: 4px solid #10b981;
+}
+
+.party-card h5 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.party-card h5 i {
+    margin-right: 8px;
+    color: #10b981;
+}
+
+.party-card p {
+    margin: 4px 0;
+}
+
+/* Route Info */
+.route-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    border-radius: 12px;
+    margin: 16px 0;
+}
+
+.route-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.route-item i {
+    color: #10b981;
+    font-size: 18px;
+}
+
+.route-arrow {
+    color: #10b981;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+/* Status Badge */
+.status-badge {
+    background: #10b981;
+    padding: 6px 16px;
+    border-radius: 30px;
+    font-weight: 600;
+    display: inline-block;
+    font-size: 12px;
+    color: white;
+}
+
+/* Timeline Table */
+.timeline-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.timeline-table thead {
+    background: #f0f4f8;
+}
+
+.timeline-table thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #1a2332;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #dce3ed;
+}
+
+.timeline-table tbody td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #edf2f7;
+    color: #1a2332;
+    vertical-align: middle;
+}
+
+.timeline-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.timeline-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.timeline-table tbody tr.current-event {
+    background: #f0f7ff;
+}
+
+.timeline-table tbody tr.current-event td {
+    border-bottom-color: #d4e2f7;
+}
+
+.timeline-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #dce3ed;
+    display: inline-block;
+}
+
+.timeline-dot.active {
+    background: #2563eb;
+}
+
+.current-badge {
+    display: inline-block;
+    background: #2563eb;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 3px;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Source Badge */
+.source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.source-badge.real {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.source-badge.real i {
+    color: #2e7d32;
+}
+
+/* Tracking Card */
+.tracking-card {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    margin-top: 20px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    border: 1px solid #e8edf2;
+}
+
+.tracking-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #eef2f6;
+    margin-bottom: 20px;
+}
+
+.tracking-number-large {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a2332;
+    flex-wrap: wrap;
+}
+
+.tracking-number-large i {
+    color: #2563eb;
+    font-size: 20px;
+}
+
+.refresh-btn {
+    background: #f0f4f8;
+    border: 1px solid #dce3ed;
+    padding: 8px 20px;
+    border-radius: 6px;
+    color: #1a2332;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.refresh-btn:hover {
+    background: #e8edf2;
+    border-color: #c5cdd8;
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 768px) {
+    .summary-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .parties-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .route-info {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .route-arrow {
+        transform: rotate(90deg);
+    }
+    
+    .tracking-number-large {
+        font-size: 17px;
+    }
+    
+    .timeline-table {
+        font-size: 12px;
+    }
+    
+    .timeline-table thead th,
+    .timeline-table tbody td {
+        padding: 8px 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .tracking-card {
+        padding: 16px;
+    }
+    
+    .tracking-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .timeline-table thead th,
+    .timeline-table tbody td {
+        padding: 6px 8px;
+        font-size: 11px;
+    }
+}
