@@ -573,6 +573,19 @@ function getSmartCargoToken() {
     });
 }
 
+// ==================== BRAND NAME FIX ====================
+// SmartCargo's live status text sometimes says "APX LOGISTICS" (their old
+// courier partner name). Replace it with "ROUTE3 LOGISTICS" wherever it
+// appears, while preserving the original capitalization style.
+function rebrandText(text) {
+    if (!text) return text;
+    return String(text).replace(/apx/gi, (match) => {
+        if (match === match.toUpperCase()) return 'ROUTE3';
+        if (match[0] === match[0].toUpperCase()) return 'Route3';
+        return 'route3';
+    });
+}
+
 async function fetchFromSmartCargo(trackingNumber) {
     try {
         const { token, cookies } = await getSmartCargoToken();
@@ -794,8 +807,8 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 const timeline = d.trackingStatus.map(e => ({
                     date: e.statusDate || '',
                     time: e.statusTime || '00:00:00',
-                    location: e.location || 'Processing',
-                    status: e.status || 'In Transit'
+                    location: rebrandText(e.location) || 'Processing',
+                    status: rebrandText(e.status) || 'In Transit'
                 }));
                 
                 const latest = timeline[timeline.length - 1];
@@ -854,7 +867,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     totalWeight: d.weight || 'N/A',
                     
                     // Source
-                    source: 'SmartCargo APX - Live Data',
+                    source: 'SmartCargo ROUTE3 - Live Data',
                     isVerified: true,
                     isRealData: true,
                     isGlobal: true
