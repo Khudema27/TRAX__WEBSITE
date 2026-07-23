@@ -2,7 +2,7 @@ name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Har 10 minute baad run ho ga
+    - cron: '*/10 * * * *'
 
 jobs:
   ping:
@@ -11,4 +11,4 @@ jobs:
       - name: Ping Route3 Website
         run: |
           curl -s https://route3.com.pk/ > /dev/null
-          echo "✅ Website pinged successfully at $(date)"
+          echo "✅ Website pinged at $(date)"
