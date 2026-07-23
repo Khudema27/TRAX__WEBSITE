@@ -1,7 +1,10 @@
 name: Keep Render Alive
+
 on:
   schedule:
     - cron: '*/10 * * * *'
+  workflow_dispatch:  # Yeh line add karein
+
 jobs:
   ping:
     runs-on: ubuntu-latest
