@@ -8,7 +8,4 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Route3 Website
-        run: |
-          curl -s https://route3.com.pk/ > /dev/null
-          echo "✅ Website pinged at $(date)"
+      - run: curl https://route3.com.pk/
