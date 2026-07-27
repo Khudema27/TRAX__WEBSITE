@@ -9,7 +9,7 @@
     
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23064e3b'/%3E%3Cpath fill='%2310b981' d='M50 20L20 37v26l30 17 30-17V37L50 20z' opacity='0.9'/%3E%3Ctext x='50' y='72' font-size='38' text-anchor='middle' fill='white'%3E📦%3C/text%3E%3C/svg%3E">
     
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -23,25 +23,123 @@
 <div id="welcomeScreen" class="welcome-screen">
     <nav class="welcome-nav">
         <div class="welcome-nav-logo">
-            <span class="welcome-logo-text">ROUTE 3</span>
+            <div class="welcome-logo-mark">
+                <i class="fas fa-route"></i>
+            </div>
+            <div>
+                <div class="welcome-logo-text">ROUTE 3</div>
+                <div class="welcome-logo-sub">TRAX Logistics</div>
+            </div>
         </div>
         <div class="welcome-nav-actions">
-            <button type="button" id="welcomeLoginBtn" class="btn-nav-login">Login</button>
-            <button type="button" id="welcomeSignupBtn" class="btn-nav-signup">Sign Up</button>
+            <button type="button" id="welcomeLoginBtn" class="btn-nav-login"><i class="fas fa-sign-in-alt"></i> Login</button>
+            <button type="button" id="welcomeSignupBtn" class="btn-nav-signup"><i class="fas fa-user-plus"></i> Sign Up</button>
         </div>
     </nav>
 
     <div class="welcome-hero">
-        <h1 class="welcome-hero-title">Track Your ID</h1>
-        <p class="welcome-hero-subtitle">Enter your tracking ID below to trace it through Route3</p>
+        <div class="hero-banner">
+            <div class="hero-banner-overlay"></div>
+            <div class="welcome-hero-grid">
+                <div class="welcome-hero-text">
+                    <span class="hero-eyebrow"><i class="fas fa-bolt"></i> Real-time logistics, reimagined</span>
+                    <h1 class="welcome-hero-title">Track Your Shipment</h1>
+                    <p class="welcome-hero-subtitle">Enter your tracking ID below to trace it through the ROUTE3 network</p>
 
-        <div class="welcome-track-group">
-            <input type="text" id="welcomeTrackInput" placeholder="e.g. 1350215374" autocomplete="off">
-            <button type="button" id="welcomeTrackBtn"><i class="fas fa-search"></i> Track</button>
+                    <div class="welcome-track-group">
+                        <input type="text" id="welcomeTrackInput" placeholder="Enter your tracking ID" autocomplete="off">
+                        <button type="button" id="welcomeTrackBtn"><i class="fas fa-search"></i> Track</button>
+                    </div>
+
+                    <div id="welcomeTrackResult" class="welcome-track-result"></div>
+                </div>
+
+                <div class="hero-visual" aria-hidden="true">
+                    <div class="hero-visual-glow"></div>
+                    <svg class="hero-road-svg" viewBox="0 0 420 260" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="roadGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" style="stop-color:#10b981;stop-opacity:0.3" />
+                                <stop offset="50%" style="stop-color:#10b981;stop-opacity:0.8" />
+                                <stop offset="100%" style="stop-color:#10b981;stop-opacity:0.3" />
+                            </linearGradient>
+                        </defs>
+                        <path class="hero-road-path" d="M20 210 C 120 210, 140 150, 210 150 C 280 150, 300 90, 400 90" stroke="url(#roadGrad)" />
+                        <g class="hero-truck">
+                            <rect x="0" y="-22" width="52" height="30" rx="6" fill="#064e3b"/>
+                            <rect x="52" y="-14" width="26" height="22" rx="4" fill="#10b981"/>
+                            <rect x="4" y="-18" width="18" height="12" rx="2" fill="#a7f3d0"/>
+                            <circle cx="16" cy="10" r="7" fill="#0f172a"/>
+                            <circle cx="16" cy="10" r="3" fill="#cbd5e1"/>
+                            <circle cx="62" cy="10" r="7" fill="#0f172a"/>
+                            <circle cx="62" cy="10" r="3" fill="#cbd5e1"/>
+                            <text x="10" y="0" font-size="10" fill="#a7f3d0" font-weight="700">TRAX</text>
+                        </g>
+                    </svg>
+                    <div class="hero-float-badge badge-1"><i class="fas fa-box"></i> Package Picked Up</div>
+                    <div class="hero-float-badge badge-2"><i class="fas fa-shield-halved"></i> Secure &amp; Insured</div>
+                    <div class="hero-float-badge badge-3"><i class="fas fa-location-dot"></i> Live GPS Tracking</div>
+                </div>
+            </div>
         </div>
 
-        <div id="welcomeTrackResult" class="welcome-track-result"></div>
+        <div class="welcome-features">
+            <div class="feature-card" style="animation-delay:0.05s">
+                <div class="feature-icon"><i class="fas fa-satellite-dish"></i></div>
+                <h4>Real-Time Tracking</h4>
+                <p>Follow every shipment live, from pickup to your doorstep.</p>
+            </div>
+            <div class="feature-card" style="animation-delay:0.15s">
+                <div class="feature-icon"><i class="fas fa-lock"></i></div>
+                <h4>Secure Payments</h4>
+                <p>Bank-grade encryption keeps your transactions protected.</p>
+            </div>
+            <div class="feature-card" style="animation-delay:0.25s">
+                <div class="feature-icon"><i class="fas fa-earth-asia"></i></div>
+                <h4>Nationwide Coverage</h4>
+                <p>Fast, reliable delivery across every major city and route.</p>
+            </div>
+            <div class="feature-card" style="animation-delay:0.35s">
+                <div class="feature-icon"><i class="fas fa-headset"></i></div>
+                <h4>24/7 Support</h4>
+                <p>Our team is always on standby to help with your shipment.</p>
+            </div>
+        </div>
+
+        <div class="how-it-works">
+            <h3 class="section-heading">How ROUTE3 Works</h3>
+            <div class="how-steps">
+                <div class="how-step">
+                    <div class="how-step-num">1</div>
+                    <i class="fas fa-box-open"></i>
+                    <h5>Book a Shipment</h5>
+                    <p>Create a consignment in seconds with pickup &amp; delivery details.</p>
+                </div>
+                <div class="how-step-connector"></div>
+                <div class="how-step">
+                    <div class="how-step-num">2</div>
+                    <i class="fas fa-route"></i>
+                    <h5>We Move It</h5>
+                    <p>Your parcel travels through our smart, optimized network.</p>
+                </div>
+                <div class="how-step-connector"></div>
+                <div class="how-step">
+                    <div class="how-step-num">3</div>
+                    <i class="fas fa-house-circle-check"></i>
+                    <h5>Track &amp; Receive</h5>
+                    <p>Watch live updates until it safely reaches its destination.</p>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <footer class="welcome-footer">
+        <div class="welcome-footer-brand">
+            <span class="welcome-logo-text">ROUTE 3</span>
+            <span>TRAX Smart Logistics</span>
+        </div>
+        <p>&copy; 2026 Route3 TRAX. Delivering trust, on time, every time.</p>
+    </footer>
 </div>
 
 <!-- Auth Screen -->
@@ -49,7 +147,10 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <h2>Route 3 <span>TRAX</span></h2>
+                <div class="auth-logo">
+                    <i class="fas fa-route"></i>
+                    <h2>Route 3 <span>TRAX</span></h2>
+                </div>
                 <div class="auth-tabs">
                     <button class="auth-tab active" data-tab="login">Login</button>
                     <button class="auth-tab" data-tab="signup">Sign Up</button>
@@ -58,7 +159,7 @@
             
             <div id="loginForm" class="auth-form active">
                 <h3>Welcome back</h3>
-                <p>Access your intelligent fleet</p>
+                <p>Sign in to access your shipments</p>
                 <form id="loginFormElement">
                     <div class="input-group">
                         <i class="fas fa-envelope"></i>
@@ -76,7 +177,7 @@
             
             <div id="signupForm" class="auth-form">
                 <h3>Join smart logistics</h3>
-                <p>Create your TRAX account</p>
+                <p>Create your TRAX account in seconds</p>
                 <form id="signupFormElement">
                     <div class="input-group">
                         <i class="fas fa-user"></i>
@@ -105,35 +206,48 @@
 
 <!-- Dashboard -->
 <div id="dashboard" class="dashboard">
-    <div class="dashboard-container">
-        <div class="dashboard-header">
-            <div class="logo-section">
-                <h1>🚛 ROUTE 3 <span>TRAX</span></h1>
-            </div>
-            <div class="user-section">
-                <div class="user-info">
-                    <i class="fas fa-user-astronaut"></i>
-                    <span id="userName">User</span>
-                </div>
-                <button id="logoutBtn" class="logout-btn">
-                    <i class="fas fa-sign-out-alt"></i> Exit
-                </button>
-                <div class="connection-status">
-                    <span class="dot"></span>
-                    <span>Live Network</span>
-                </div>
+    <div class="dash-topbar">
+        <div class="logo-section">
+            <div class="dash-logo-mark"><i class="fas fa-route"></i></div>
+            <div>
+                <h1>ROUTE 3 <span>TRAX</span></h1>
+                <div class="dash-logo-sub">Route3 Logistics</div>
             </div>
         </div>
-        
-        <div class="dashboard-nav">
-            <button class="nav-btn active" data-page="profile">📋 Profile</button>
-            <button class="nav-btn" data-page="track">🔍 Track Shipment</button>
-            <button class="nav-btn" data-page="shipments">📦 My Shipments</button>
-            <button class="nav-btn" data-page="tracked">🕒 Tracked History</button>
-            <button class="nav-btn" data-page="contact">📞 Contact Us</button>
+        <div class="user-section">
+            <div class="connection-status">
+                <span class="dot"></span>
+                <span>Live Network</span>
+            </div>
+            <div class="user-info">
+                <span class="user-avatar-sm" id="userAvatarInitial">A</span>
+                <span id="userName">User</span>
+            </div>
+            <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Menu" aria-expanded="false">
+                <i class="fas fa-ellipsis-vertical"></i>
+            </button>
         </div>
-        
-        <div id="dashboardContent" class="dashboard-content"></div>
+    </div>
+
+    <div id="mobileMenuBackdrop" class="mobile-menu-backdrop"></div>
+
+    <div class="dash-body">
+        <aside class="dash-sidebar" id="dashSidebar">
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-page="profile"><i class="fas fa-user"></i> Profile</button>
+                <button class="nav-btn" data-page="track"><i class="fas fa-location-dot"></i> Track</button>
+                <button class="nav-btn" data-page="shipments"><i class="fas fa-box"></i> Shipments</button>
+                <button class="nav-btn" data-page="tracked"><i class="fas fa-clock-rotate-left"></i> History</button>
+                <button class="nav-btn" data-page="contact"><i class="fas fa-comment-dots"></i> Support</button>
+            </nav>
+            <button id="sidebarLogoutBtn" class="sidebar-logout">
+                <i class="fas fa-sign-out-alt"></i> Log Out
+            </button>
+        </aside>
+
+        <main class="dash-main">
+            <div id="dashboardContent" class="dashboard-content"></div>
+        </main>
     </div>
 </div>
 
@@ -145,12 +259,6 @@
     <div class="fab-options" id="fabOptions">
         <button class="fab-option" onclick="openShipmentModal()">
             <i class="fas fa-box"></i> New Shipment
-        </button>
-        <button class="fab-option" onclick="openSupportModal()">
-            <i class="fas fa-ticket-alt"></i> Support Ticket
-        </button>
-        <button class="fab-option" onclick="showRateCalculator()">
-            <i class="fas fa-calculator"></i> Rate Calculator
         </button>
     </div>
 </div>
@@ -183,8 +291,23 @@
                 </div>
                 
                 <div class="form-section">
+                    <h4><i class="fas fa-earth-americas"></i> Route</h4>
+                    <div class="form-row country-row">
+                        <div class="country-select-wrap">
+                            <label for="originCountry"><i class="fas fa-location-dot"></i> Shipping From</label>
+                            <select id="originCountry" required></select>
+                        </div>
+                        <button type="button" class="country-swap" onclick="swapCountries()" title="Swap countries"><i class="fas fa-arrow-right-arrow-left"></i></button>
+                        <div class="country-select-wrap">
+                            <label for="destinationCountry"><i class="fas fa-flag-checkered"></i> Shipping To</label>
+                            <select id="destinationCountry" required></select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <h4><i class="fas fa-cube"></i> Cargo Details</h4>
-                    <input type="text" id="parcelDescription" placeholder="Description *" style="width:100%; margin-bottom:12px; padding:12px;">
+                    <input type="text" id="parcelDescription" placeholder="Description *" style="width:100%; margin-bottom:12px; padding:11px 14px; border:1px solid #e2e8ec; background:#f7f9f9; border-radius:10px;">
                     <div class="form-row">
                         <input type="number" id="quantity" placeholder="Quantity" value="1">
                         <input type="text" id="weight" placeholder="Weight (kg)">
@@ -200,11 +323,25 @@
     </div>
 </div>
 
+<!-- Custom Confirm Dialog -->
+<div id="confirmDialogOverlay" class="confirm-dialog-overlay">
+    <div class="confirm-dialog-box">
+        <div class="confirm-dialog-icon"><i class="fas fa-triangle-exclamation"></i></div>
+        <h3 id="confirmDialogTitle">Are you sure?</h3>
+        <p id="confirmDialogMessage">This action cannot be undone.</p>
+        <div class="confirm-dialog-actions">
+            <button id="confirmDialogCancel" class="confirm-dialog-cancel">Cancel</button>
+            <button id="confirmDialogOk" class="confirm-dialog-ok">Yes, Continue</button>
+        </div>
+    </div>
+</div>
+
 <!-- Loading Overlay -->
 <div id="loadingOverlay" class="loading-overlay">
-    <div style="text-align:center">
-        <i class="fas fa-spinner fa-pulse fa-3x"></i>
-        <p style="margin-top: 15px;">Processing...</p>
+    <div class="loading-box">
+        <div class="loading-truck"><i class="fas fa-truck-fast"></i></div>
+        <div class="loading-dots"><span></span><span></span><span></span></div>
+        <p style="font-weight:600; color:#064e3b;">Processing...</p>
     </div>
 </div>
 

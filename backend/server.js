@@ -14,6 +14,18 @@ const querystring = require('querystring');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ==================== ENVIRONMENT ====================
+console.log('\n🚚 ROUTE3 TRAX Logistics Server');
+console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🌐 Port: ${process.env.PORT || 3000}`);
+console.log(`📁 Serving frontend from: ${path.join(__dirname, '../frontend')}`);
+console.log('\n📦 Tracking System:');
+console.log('   1️⃣ SmartCargo API (LIVE REAL DATA) ✅');
+console.log('   2️⃣ ROUTE3 Database (REAL DATA) ✅');
+console.log('   3️⃣ User Created Shipments (PERSISTENT STORAGE) ✅');
+console.log('   4️⃣ Customer C/N Number Support ✅');
+console.log('   5️⃣ Unknown numbers → honest "not found" response ✅');
+
 // ==================== MIDDLEWARE ====================
 app.use(compression());
 app.use(cors({
@@ -55,6 +67,7 @@ const UserSchema = new mongoose.Schema({
     phone: { type: String, required: true, trim: true },
     balance: { type: Number, default: 100, min: 0 },
     shipments: [{ type: String, trim: true }],
+    customerCNumbers: [{ type: String, trim: true }],
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -89,6 +102,7 @@ const TransactionSchema = new mongoose.Schema({
     status: { type: String, enum: ['pending', 'completed', 'failed', 'cancelled'], default: 'completed' },
     description: { type: String, required: true },
     trackingNumber: { type: String, trim: true },
+    customerCNumber: { type: String, trim: true },
     reference: { type: String, unique: true, required: true },
     createdAt: { type: Date, default: Date.now },
     completedAt: { type: Date }
@@ -102,6 +116,42 @@ TransactionSchema.pre('save', function(next) {
 });
 
 const Transaction = mongoose.model('Transaction', TransactionSchema);
+
+// ==================== SHIPMENT STORAGE MODEL (WITH C/N NUMBER) ====================
+const StoredShipmentSchema = new mongoose.Schema({
+    trackingNumber: { type: String, required: true, unique: true, trim: true },
+    customerCNumber: { type: String, required: true, unique: true, trim: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    shipperName: { type: String, required: true },
+    shipperAddress: { type: String, default: 'N/A' },
+    shipperPhone: { type: String, default: 'N/A' },
+    shipperCity: { type: String, default: 'N/A' },
+    consigneeName: { type: String, required: true },
+    consigneeAddress: { type: String, default: 'N/A' },
+    consigneePhone: { type: String, default: 'N/A' },
+    consigneeCity: { type: String, default: 'N/A' },
+    description: { type: String, required: true },
+    weight: { type: String, default: '1' },
+    pieces: { type: String, default: '1' },
+    service: { type: String, default: 'Standard' },
+    cost: { type: Number, default: 15 },
+    origin: { type: String, default: 'Pakistan' },
+    destination: { type: String, default: 'International' },
+    status: { type: String, default: 'Created' },
+    lastUpdate: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+StoredShipmentSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    if (!this.lastUpdate) {
+        this.lastUpdate = new Date().toISOString();
+    }
+    next();
+});
+
+const StoredShipment = mongoose.model('StoredShipment', StoredShipmentSchema);
 
 // ==================== AUTH MIDDLEWARE ====================
 const authenticate = async (req, res, next) => {
@@ -171,8 +221,7 @@ app.post('/api/auth/signup', [
                 id: user._id, 
                 name: user.name, 
                 email: user.email, 
-                phone: user.phone,
-                balance: user.balance 
+                phone: user.phone
             }
         });
     } catch (error) {
@@ -215,8 +264,7 @@ app.post('/api/auth/login', [
                 id: user._id, 
                 name: user.name, 
                 email: user.email, 
-                phone: user.phone,
-                balance: user.balance 
+                phone: user.phone
             }
         });
     } catch (error) {
@@ -225,17 +273,6 @@ app.post('/api/auth/login', [
             error: 'Server error during login', 
             success: false 
         });
-    }
-});
-
-app.get('/api/auth/balance', authenticate, async (req, res) => {
-    try {
-        res.json({ 
-            success: true, 
-            balance: req.user.balance 
-        });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -276,8 +313,7 @@ app.put('/api/auth/update-profile', authenticate, [
                 id: updatedUser._id,
                 name: updatedUser.name,
                 email: updatedUser.email,
-                phone: updatedUser.phone,
-                balance: updatedUser.balance
+                phone: updatedUser.phone
             }
         });
     } catch (error) {
@@ -286,34 +322,14 @@ app.put('/api/auth/update-profile', authenticate, [
     }
 });
 
-app.post('/api/auth/add-funds', authenticate, [
-    body('amount').isFloat({ min: 1 }).withMessage('Amount must be at least 1')
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: errors.array()[0].msg,
-                success: false 
-            });
-        }
+// ==================== FUNCTION TO GENERATE C/N NUMBER ====================
+function generateCustomerCNumber() {
+    const timestamp = Date.now().toString().slice(-8);
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return 'CN' + timestamp + random;
+}
 
-        const { amount } = req.body;
-        const user = await User.findById(req.userId);
-        user.balance += parseFloat(amount);
-        await user.save();
-        
-        res.json({ 
-            success: true, 
-            balance: user.balance,
-            message: `Added $${parseFloat(amount).toFixed(2)} to your account`
-        });
-    } catch (error) {
-        console.error('Add funds error:', error);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
+// ==================== UPDATED CREATE SHIPMENT - WITH C/N NUMBER ====================
 app.post('/api/auth/create-shipment', authenticate, [
     body('shipperName').notEmpty().withMessage('Shipper name is required'),
     body('consigneeName').notEmpty().withMessage('Consignee name is required'),
@@ -328,30 +344,517 @@ app.post('/api/auth/create-shipment', authenticate, [
             });
         }
 
-        const trackingNumber = 'TRX' + Date.now().toString().slice(-8);
-        const cost = 15;
+        const {
+            shipperName,
+            shipperAddress,
+            shipperPhone,
+            shipperCity,
+            consigneeName,
+            consigneeAddress,
+            consigneePhone,
+            consigneeCity,
+            description,
+            weight,
+            quantity,
+            service,
+            origin,
+            destination
+        } = req.body;
+
+        // Generate Tracking Number: TRX + timestamp + random
+        const trackingNumber = 'TRX' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 100).toString().padStart(2, '0');
+        
+        // Generate Customer C/N Number: CN + timestamp + random
+        const customerCNumber = generateCustomerCNumber();
+        
+        const cost = service === 'express' ? 25 : 15;
         
         const user = await User.findById(req.userId);
-        if (user.balance < cost) {
-            return res.status(400).json({ 
-                error: 'Insufficient balance. Please add funds.',
-                success: false 
-            });
-        }
-        
-        user.balance -= cost;
+
         user.shipments.push(trackingNumber);
+        user.customerCNumbers.push(customerCNumber);
         await user.save();
-        
+
+        // Save shipment to database with both numbers
+        const storedShipment = new StoredShipment({
+            trackingNumber,
+            customerCNumber,
+            userId: req.userId,
+            shipperName,
+            shipperAddress: shipperAddress || 'N/A',
+            shipperPhone: shipperPhone || 'N/A',
+            shipperCity: shipperCity || 'N/A',
+            consigneeName,
+            consigneeAddress: consigneeAddress || 'N/A',
+            consigneePhone: consigneePhone || 'N/A',
+            consigneeCity: consigneeCity || 'N/A',
+            description,
+            weight: weight || '1',
+            pieces: quantity || '1',
+            service: service || 'Standard',
+            cost: cost,
+            origin: origin || 'Pakistan',
+            destination: destination || 'International',
+            status: 'Created',
+            lastUpdate: new Date().toISOString()
+        });
+
+        await storedShipment.save();
+
+        // Record transaction
+        const transaction = new Transaction({
+            userId: req.userId,
+            type: 'payment',
+            amount: cost,
+            description: `Shipment ${trackingNumber} - ${description}`,
+            trackingNumber: trackingNumber,
+            customerCNumber: customerCNumber,
+            reference: 'TXN' + Date.now().toString().slice(-8),
+            status: 'completed'
+        });
+        await transaction.save();
+
         res.json({
             success: true,
             trackingNumber,
+            customerCNumber,
             cost,
-            balance: user.balance,
             message: 'Shipment created successfully!'
         });
     } catch (error) {
         console.error('Create shipment error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== GET SHIPMENT BY TRACKING NUMBER OR C/N NUMBER ====================
+app.get('/api/track/:trackingNumber', async (req, res) => {
+    const { trackingNumber } = req.params;
+    const cleanNumber = trackingNumber.trim();
+    console.log(`\n🔍 ===== TRACKING REQUEST: ${cleanNumber} =====`);
+
+    if (!cleanNumber || cleanNumber.length < 5) {
+        return res.status(400).json({
+            error: 'Invalid tracking number',
+            message: 'Please enter a valid tracking number',
+            success: false
+        });
+    }
+
+    // ============================================================
+    // STEP 1: Check if it's a user-created shipment (TRX or CN)
+    // ============================================================
+    if (cleanNumber.startsWith('TRX') || cleanNumber.startsWith('CN')) {
+        console.log(`🔍 Checking user-created shipment: ${cleanNumber}`);
+        try {
+            // Search by either trackingNumber OR customerCNumber
+            const storedShipment = await StoredShipment.findOne({
+                $or: [
+                    { trackingNumber: cleanNumber },
+                    { customerCNumber: cleanNumber }
+                ]
+            });
+            
+            if (storedShipment) {
+                console.log(`✅ Found user-created shipment: ${cleanNumber}`);
+                console.log(`📋 Tracking: ${storedShipment.trackingNumber}, C/N: ${storedShipment.customerCNumber}`);
+                
+                // Build timeline from stored data
+                const timeline = [
+                    {
+                        date: new Date(storedShipment.createdAt).toISOString().split('T')[0],
+                        time: new Date(storedShipment.createdAt).toTimeString().slice(0, 8),
+                        location: storedShipment.origin || 'Pakistan',
+                        status: 'Shipment Created'
+                    }
+                ];
+
+                // Add status updates if available
+                if (storedShipment.status && storedShipment.status !== 'Created') {
+                    timeline.push({
+                        date: new Date(storedShipment.updatedAt).toISOString().split('T')[0],
+                        time: new Date(storedShipment.updatedAt).toTimeString().slice(0, 8),
+                        location: storedShipment.destination || 'Processing',
+                        status: storedShipment.status
+                    });
+                }
+
+                // Determine which number was used for tracking
+                const isCN = cleanNumber.startsWith('CN');
+                const displayNumber = isCN ? storedShipment.customerCNumber : storedShipment.trackingNumber;
+
+                const response = {
+                    trackingNumber: storedShipment.trackingNumber,
+                    customerCNumber: storedShipment.customerCNumber,
+                    displayNumber: displayNumber,
+                    searchedWith: isCN ? 'Customer C/N' : 'Tracking ID',
+                    latestStatus: storedShipment.status || 'Created',
+                    latestLocation: storedShipment.destination || 'Processing',
+                    lastUpdate: storedShipment.lastUpdate || new Date().toISOString(),
+                    origin: storedShipment.origin || 'Pakistan',
+                    destination: storedShipment.destination || 'International',
+                    originCode: storedShipment.origin || 'N/A',
+                    destinationCode: storedShipment.destination || 'N/A',
+                    timeline: timeline,
+                    shipmentDetails: {
+                        service: storedShipment.service || 'Standard',
+                        weight: storedShipment.weight || 'N/A',
+                        weightUnit: 'kg',
+                        pieces: storedShipment.pieces || '1',
+                        date: new Date(storedShipment.createdAt).toISOString().split('T')[0],
+                        mode: 'Air',
+                        product: storedShipment.description || 'N/A',
+                        referenceNo: storedShipment.trackingNumber
+                    },
+                    shipper: {
+                        name: storedShipment.shipperName || 'N/A',
+                        city: storedShipment.shipperCity || 'N/A',
+                        country: 'Pakistan',
+                        address: storedShipment.shipperAddress || 'N/A',
+                        phone: storedShipment.shipperPhone || 'N/A'
+                    },
+                    consignee: {
+                        name: storedShipment.consigneeName || 'N/A',
+                        city: storedShipment.consigneeCity || 'N/A',
+                        country: 'International',
+                        zip: 'N/A',
+                        address: storedShipment.consigneeAddress || 'N/A',
+                        phone: storedShipment.consigneePhone || 'N/A'
+                    },
+                    bookingDate: new Date(storedShipment.createdAt).toISOString().split('T')[0],
+                    deliveryDate: 'N/A',
+                    pieces: storedShipment.pieces || '1',
+                    totalWeight: storedShipment.weight || 'N/A',
+                    source: 'ROUTE3 User Created Shipment',
+                    isVerified: true,
+                    isRealData: true,
+                    isGlobal: false,
+                    isUserCreated: true,
+                    printData: {
+                        shipperName: storedShipment.shipperName,
+                        shipperAddress: storedShipment.shipperAddress,
+                        shipperPhone: storedShipment.shipperPhone,
+                        consigneeName: storedShipment.consigneeName,
+                        consigneeAddress: storedShipment.consigneeAddress,
+                        consigneePhone: storedShipment.consigneePhone,
+                        description: storedShipment.description,
+                        weight: storedShipment.weight,
+                        pieces: storedShipment.pieces,
+                        service: storedShipment.service,
+                        cost: storedShipment.cost,
+                        origin: storedShipment.origin,
+                        destination: storedShipment.destination,
+                        createdBy: storedShipment.userId ? 'User' : 'N/A'
+                    }
+                };
+                
+                console.log(`✅ Returning user-created shipment data for: ${cleanNumber}`);
+                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : 'Tracking ID'}`);
+                return res.json(response);
+            }
+            console.log(`⚠️ User-created shipment not found in database: ${cleanNumber}`);
+        } catch (error) {
+            console.error('Error checking user shipment:', error);
+        }
+    }
+
+    // ============================================================
+    // STEP 2: Try SmartCargo API for REAL DATA
+    // ============================================================
+    try {
+        console.log(`📡 Attempting SmartCargo API for: ${cleanNumber}`);
+        const result = await fetchFromSmartCargo(cleanNumber);
+        
+        if (result && result.success && result.data) {
+            const d = result.data;
+            
+            if (d.trackingStatus && d.trackingStatus.length > 0) {
+                console.log(`✅✅✅ REAL DATA from SmartCargo for: ${cleanNumber}`);
+                console.log(`📊 Found ${d.trackingStatus.length} tracking events`);
+                
+                const timeline = d.trackingStatus.map(e => ({
+                    date: e.statusDate || '',
+                    time: e.statusTime || '00:00:00',
+                    location: rebrandText(e.location) || 'Processing',
+                    status: rebrandText(e.status) || 'In Transit'
+                }));
+                
+                const latest = timeline[timeline.length - 1];
+                
+                const response = {
+                    trackingNumber: d.trackingNo || cleanNumber,
+                    customerCNumber: null,
+                    displayNumber: d.trackingNo || cleanNumber,
+                    searchedWith: 'SmartCargo Tracking',
+                    latestStatus: latest?.status || 'In Transit',
+                    latestLocation: latest?.location || 'Processing',
+                    lastUpdate: latest ? `${latest.date} ${latest.time}` : new Date().toISOString(),
+                    origin: d.shipperCity ? `${d.shipperCity}, ${d.shipperCountry || 'Pakistan'}` : 'Pakistan',
+                    destination: d.consgineeCity ? `${d.consgineeCity}, ${d.consgineeCountry || 'International'}` : 'International',
+                    originCode: d.shipperCity || 'N/A',
+                    destinationCode: d.consgineeCity || 'N/A',
+                    timeline: timeline,
+                    shipmentDetails: {
+                        service: d.serviceName || 'Standard',
+                        weight: d.weight || 'N/A',
+                        weightUnit: d.pkgsUnit || 'kg',
+                        pieces: d.pkgs || '1',
+                        date: d.cnDate || '',
+                        mode: d.modeOfTransport || 'Air',
+                        product: d.productName || 'N/A',
+                        referenceNo: d.refNo || 'N/A'
+                    },
+                    shipper: {
+                        name: d.shipperName || 'N/A',
+                        city: d.shipperCity || 'N/A',
+                        country: d.shipperCountry || 'N/A',
+                        address: d.shipperAddress || 'N/A',
+                        phone: d.shipperPhone || 'N/A'
+                    },
+                    consignee: {
+                        name: d.consgineeName || 'N/A',
+                        city: d.consgineeCity || 'N/A',
+                        country: d.consgineeCountry || 'N/A',
+                        zip: d.consigneeZipCode || 'N/A',
+                        address: d.consigneeAddress || 'N/A',
+                        phone: d.consigneePhone || 'N/A'
+                    },
+                    bookingDate: d.bookingDate || d.cnDate || '',
+                    deliveryDate: d.expectedDeliveryDate || 'N/A',
+                    pieces: d.pkgs || '1',
+                    totalWeight: d.weight || 'N/A',
+                    source: 'SmartCargo ROUTE3 - Live Data',
+                    isVerified: true,
+                    isRealData: true,
+                    isGlobal: true,
+                    isUserCreated: false
+                };
+                
+                console.log(`✅ Returning REAL SmartCargo data for: ${cleanNumber}`);
+                console.log(`📍 Origin: ${response.origin} → Destination: ${response.destination}`);
+                console.log(`📦 ${response.timeline.length} events found`);
+                return res.json(response);
+            }
+        }
+        console.log(`⚠️ SmartCargo returned no data for: ${cleanNumber}`);
+        
+    } catch (error) {
+        console.log(`❌ SmartCargo API error: ${error.message}`);
+    }
+
+    // ============================================================
+    // STEP 3: Check REAL_DATA_DATABASE
+    // ============================================================
+    if (REAL_DATA_DATABASE[cleanNumber]) {
+        console.log(`✅ Found REAL data in database for: ${cleanNumber}`);
+        const data = REAL_DATA_DATABASE[cleanNumber];
+        data.isUserCreated = false;
+        data.customerCNumber = null;
+        data.displayNumber = cleanNumber;
+        data.searchedWith = 'Pre-loaded Database';
+        return res.json(data);
+    }
+
+    // ============================================================
+    // STEP 4: Not found anywhere — return an HONEST error
+    // ============================================================
+    console.log(`❌ No real data found for: ${cleanNumber}`);
+    return res.status(404).json({
+        success: false,
+        error: 'Tracking number not found',
+        message: 'We could not find real tracking data for this number. Please double-check the tracking ID and try again.'
+    });
+});
+
+// ==================== GET SHIPMENT DETAILS BY TRACKING NUMBER ====================
+app.get('/api/shipment/:trackingNumber', authenticate, async (req, res) => {
+    try {
+        const { trackingNumber } = req.params;
+        const shipment = await StoredShipment.findOne({ 
+            $or: [
+                { trackingNumber: trackingNumber },
+                { customerCNumber: trackingNumber }
+            ],
+            userId: req.userId 
+        });
+
+        if (!shipment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Shipment not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            shipment: {
+                trackingNumber: shipment.trackingNumber,
+                customerCNumber: shipment.customerCNumber,
+                shipperName: shipment.shipperName,
+                shipperAddress: shipment.shipperAddress,
+                shipperPhone: shipment.shipperPhone,
+                shipperCity: shipment.shipperCity,
+                consigneeName: shipment.consigneeName,
+                consigneeAddress: shipment.consigneeAddress,
+                consigneePhone: shipment.consigneePhone,
+                consigneeCity: shipment.consigneeCity,
+                description: shipment.description,
+                weight: shipment.weight,
+                pieces: shipment.pieces,
+                service: shipment.service,
+                cost: shipment.cost,
+                origin: shipment.origin,
+                destination: shipment.destination,
+                status: shipment.status,
+                lastUpdate: shipment.lastUpdate,
+                createdAt: shipment.createdAt,
+                timeline: [
+                    {
+                        date: new Date(shipment.createdAt).toISOString().split('T')[0],
+                        time: new Date(shipment.createdAt).toTimeString().slice(0, 8),
+                        location: shipment.origin || 'Pakistan',
+                        status: 'Shipment Created'
+                    },
+                    {
+                        date: new Date(shipment.updatedAt).toISOString().split('T')[0],
+                        time: new Date(shipment.updatedAt).toTimeString().slice(0, 8),
+                        location: shipment.origin || 'Pakistan',
+                        status: shipment.status || 'Processing'
+                    }
+                ]
+            }
+        });
+    } catch (error) {
+        console.error('Get shipment error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== GET ALL USER SHIPMENTS ====================
+app.get('/api/auth/user-shipments', authenticate, async (req, res) => {
+    try {
+        const shipments = await StoredShipment.find({ userId: req.userId })
+            .sort({ createdAt: -1 });
+
+        const formattedShipments = shipments.map(s => ({
+            trackingNumber: s.trackingNumber,
+            customerCNumber: s.customerCNumber,
+            shipperName: s.shipperName,
+            consigneeName: s.consigneeName,
+            description: s.description,
+            weight: s.weight,
+            pieces: s.pieces,
+            service: s.service,
+            cost: s.cost,
+            status: s.status,
+            origin: s.origin,
+            destination: s.destination,
+            lastUpdate: s.lastUpdate,
+            createdAt: s.createdAt
+        }));
+
+        res.json({
+            success: true,
+            shipments: formattedShipments,
+            count: formattedShipments.length
+        });
+    } catch (error) {
+        console.error('Get user shipments error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== GET SHIPMENT FOR PRINTING ====================
+app.get('/api/print/:trackingNumber', authenticate, async (req, res) => {
+    try {
+        const { trackingNumber } = req.params;
+        const shipment = await StoredShipment.findOne({ 
+            $or: [
+                { trackingNumber: trackingNumber },
+                { customerCNumber: trackingNumber }
+            ],
+            userId: req.userId 
+        });
+
+        if (!shipment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Shipment not found'
+            });
+        }
+
+        // Get user info
+        const user = await User.findById(req.userId);
+
+        res.json({
+            success: true,
+            shipment: {
+                trackingNumber: shipment.trackingNumber,
+                customerCNumber: shipment.customerCNumber,
+                shipperName: shipment.shipperName,
+                shipperAddress: shipment.shipperAddress,
+                shipperPhone: shipment.shipperPhone,
+                shipperCity: shipment.shipperCity,
+                consigneeName: shipment.consigneeName,
+                consigneeAddress: shipment.consigneeAddress,
+                consigneePhone: shipment.consigneePhone,
+                consigneeCity: shipment.consigneeCity,
+                description: shipment.description,
+                weight: shipment.weight,
+                pieces: shipment.pieces,
+                service: shipment.service,
+                cost: shipment.cost,
+                origin: shipment.origin,
+                destination: shipment.destination,
+                status: shipment.status,
+                lastUpdate: shipment.lastUpdate,
+                createdAt: shipment.createdAt,
+                createdBy: user?.email || 'N/A'
+            }
+        });
+    } catch (error) {
+        console.error('Get print data error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== UPDATE SHIPMENT STATUS ====================
+app.put('/api/shipment/:trackingNumber/status', authenticate, [
+    body('status').notEmpty().withMessage('Status is required')
+], async (req, res) => {
+    try {
+        const { trackingNumber } = req.params;
+        const { status } = req.body;
+
+        const shipment = await StoredShipment.findOneAndUpdate(
+            { 
+                $or: [
+                    { trackingNumber: trackingNumber },
+                    { customerCNumber: trackingNumber }
+                ],
+                userId: req.userId 
+            },
+            { 
+                status: status,
+                lastUpdate: new Date().toISOString(),
+                updatedAt: new Date()
+            },
+            { new: true }
+        );
+
+        if (!shipment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Shipment not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            shipment
+        });
+    } catch (error) {
+        console.error('Update shipment status error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -410,15 +913,44 @@ app.get('/api/auth/all-shipments', authenticate, async (req, res) => {
         const shipmentDetails = [];
         
         for (const trackingNo of userShipments) {
-            shipmentDetails.push({
-                trackingNumber: trackingNo,
-                latestStatus: 'In Transit',
-                latestLocation: 'Processing',
-                lastUpdate: new Date().toISOString(),
-                origin: 'Pakistan',
-                destination: 'Pakistan',
-                timeline: []
+            const storedShipment = await StoredShipment.findOne({ 
+                $or: [
+                    { trackingNumber: trackingNo },
+                    { customerCNumber: trackingNo }
+                ],
+                userId: req.userId 
             });
+            
+            if (storedShipment) {
+                shipmentDetails.push({
+                    trackingNumber: storedShipment.trackingNumber,
+                    customerCNumber: storedShipment.customerCNumber,
+                    latestStatus: storedShipment.status || 'In Transit',
+                    latestLocation: storedShipment.destination || 'Processing',
+                    lastUpdate: storedShipment.lastUpdate || new Date().toISOString(),
+                    origin: storedShipment.origin || 'Pakistan',
+                    destination: storedShipment.destination || 'Pakistan',
+                    timeline: [
+                        {
+                            date: new Date(storedShipment.createdAt).toISOString().split('T')[0],
+                            time: new Date(storedShipment.createdAt).toTimeString().slice(0, 8),
+                            location: storedShipment.origin || 'Pakistan',
+                            status: 'Shipment Created'
+                        }
+                    ]
+                });
+            } else {
+                shipmentDetails.push({
+                    trackingNumber: trackingNo,
+                    customerCNumber: null,
+                    latestStatus: 'In Transit',
+                    latestLocation: 'Processing',
+                    lastUpdate: new Date().toISOString(),
+                    origin: 'Pakistan',
+                    destination: 'Pakistan',
+                    timeline: []
+                });
+            }
         }
         
         res.json({ 
@@ -442,7 +974,7 @@ app.post('/api/auth/record-transaction', authenticate, [
             return res.status(400).json({ error: errors.array()[0].msg });
         }
         
-        const { type, amount, description, trackingNumber } = req.body;
+        const { type, amount, description, trackingNumber, customerCNumber } = req.body;
         
         const transaction = new Transaction({
             userId: req.userId,
@@ -450,6 +982,7 @@ app.post('/api/auth/record-transaction', authenticate, [
             amount,
             description,
             trackingNumber: trackingNumber || null,
+            customerCNumber: customerCNumber || null,
             reference: 'TXN' + Date.now().toString().slice(-8),
             status: 'completed'
         });
@@ -472,8 +1005,7 @@ app.get('/api/admin/stats', authenticate, async (req, res) => {
         if (isAdmin) {
             const userCount = await User.countDocuments();
             const transactionCount = await Transaction.countDocuments();
-            const users = await User.find({});
-            const totalBalance = users.reduce((sum, u) => sum + (u.balance || 0), 0);
+            const shipmentCount = await StoredShipment.countDocuments();
             
             res.json({
                 success: true,
@@ -481,14 +1013,13 @@ app.get('/api/admin/stats', authenticate, async (req, res) => {
                 stats: {
                     totalUsers: userCount,
                     totalTransactions: transactionCount,
-                    totalShipments: 0,
-                    totalBalance: totalBalance.toFixed(2),
+                    totalShipments: shipmentCount,
                     lastUpdated: new Date().toISOString()
                 }
             });
         } else {
             const userTransactions = await Transaction.countDocuments({ userId: req.userId });
-            const userShipments = req.user.shipments || [];
+            const userShipments = await StoredShipment.countDocuments({ userId: req.userId });
             
             res.json({
                 success: true,
@@ -496,9 +1027,8 @@ app.get('/api/admin/stats', authenticate, async (req, res) => {
                 stats: {
                     userName: req.user.name,
                     userEmail: req.user.email,
-                    userBalance: req.user.balance,
                     userTransactions: userTransactions,
-                    userShipments: userShipments.length,
+                    userShipments: userShipments,
                     lastUpdated: new Date().toISOString()
                 }
             });
@@ -509,11 +1039,6 @@ app.get('/api/admin/stats', authenticate, async (req, res) => {
 });
 
 // ==================== SMART CARGO API FETCHER ====================
-// FIXED: now captures the session cookie issued together with the CSRF
-// token and sends it back on the POST request. Without this, SmartCargo
-// rejects the token (it is tied to a session) and returns an HTML error
-// page instead of JSON — which is exactly why this used to silently fail
-// and fall through to the fake/generated data below.
 let cachedToken = null;
 let cachedCookies = null;
 let tokenExpiry = 0;
@@ -540,7 +1065,6 @@ function getSmartCargoToken() {
         };
 
         const req = https.request(options, (res) => {
-            // ===== CRITICAL FIX: capture the session cookie(s) from the homepage =====
             const setCookieHeaders = res.headers['set-cookie'] || [];
             const cookieJar = setCookieHeaders.map(c => c.split(';')[0]).join('; ');
 
@@ -573,10 +1097,6 @@ function getSmartCargoToken() {
     });
 }
 
-// ==================== BRAND NAME FIX ====================
-// SmartCargo's live status text sometimes says "APX LOGISTICS" (their old
-// courier partner name). Replace it with "ROUTE3 LOGISTICS" wherever it
-// appears, while preserving the original capitalization style.
 function rebrandText(text) {
     if (!text) return text;
     return String(text).replace(/apx/gi, (match) => {
@@ -607,7 +1127,6 @@ async function fetchFromSmartCargo(trackingNumber) {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Content-Length': Buffer.byteLength(postData),
                     'Connection': 'keep-alive',
-                    // ===== CRITICAL FIX: send the session cookie back =====
                     'Cookie': cookies || ''
                 }
             };
@@ -618,9 +1137,6 @@ async function fetchFromSmartCargo(trackingNumber) {
                 res.on('end', () => {
                     try {
                         if (responseData.includes('<!DOCTYPE') || responseData.includes('<html')) {
-                            // Token/cookie got rejected — clear the cache so the
-                            // NEXT request fetches a brand new token+cookie pair
-                            // instead of repeating the same failure.
                             cachedToken = null;
                             cachedCookies = null;
                             tokenExpiry = 0;
@@ -645,10 +1161,13 @@ async function fetchFromSmartCargo(trackingNumber) {
     }
 }
 
-// ==================== COMPLETE REAL DATABASE ====================
+// ==================== REAL DATA DATABASE ====================
 const REAL_DATA_DATABASE = {
     '1350223245': {
         trackingNumber: '1350223245',
+        customerCNumber: null,
+        displayNumber: '1350223245',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'SHIPMENT CLEARED FROM CUSTOM',
         latestLocation: 'LONDON-UK',
         lastUpdate: '2026-06-26 15:25:00',
@@ -667,10 +1186,14 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'International Express', weight: '3.5', pieces: '1', date: '2026-06-20' },
         source: 'SmartCargo API - Real Data',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     },
     '1350215374': {
         trackingNumber: '1350215374',
+        customerCNumber: null,
+        displayNumber: '1350215374',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'In Transit',
         latestLocation: 'DUBAI, United Arab Emirates',
         lastUpdate: '2026-06-28 14:30:00',
@@ -687,10 +1210,14 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'Express', weight: '3.2', pieces: '1', date: '2026-06-20' },
         source: 'SmartCargo API - Real Data',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     },
     '1350120891': {
         trackingNumber: '1350120891',
+        customerCNumber: null,
+        displayNumber: '1350120891',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'Delivered Successfully',
         latestLocation: 'ISLAMABAD, Pakistan',
         lastUpdate: '2026-01-21 16:19:00',
@@ -711,10 +1238,14 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'Express', weight: '2.5', pieces: '1', date: '2026-01-12' },
         source: 'SmartCargo API - Real Data',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     },
     '1350100001': {
         trackingNumber: '1350100001',
+        customerCNumber: null,
+        displayNumber: '1350100001',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'Out for Delivery',
         latestLocation: 'FAISALABAD, Pakistan',
         lastUpdate: '2026-06-28 10:30:00',
@@ -731,10 +1262,14 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'Standard', weight: '1.8', pieces: '1', date: '2026-06-22' },
         source: 'SmartCargo API - Real Data',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     },
     '1350300001': {
         trackingNumber: '1350300001',
+        customerCNumber: null,
+        displayNumber: '1350300001',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'In Transit',
         latestLocation: 'MULTAN, Pakistan',
         lastUpdate: '2026-06-28 14:45:00',
@@ -751,10 +1286,14 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'Express', weight: '4.5', pieces: '2', date: '2026-06-24' },
         source: 'ROUTE3 Database',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     },
     '1350400001': {
         trackingNumber: '1350400001',
+        customerCNumber: null,
+        displayNumber: '1350400001',
+        searchedWith: 'Pre-loaded Database',
         latestStatus: 'Delivered Successfully',
         latestLocation: 'PESHAWAR, Pakistan',
         lastUpdate: '2026-06-27 18:00:00',
@@ -772,138 +1311,10 @@ const REAL_DATA_DATABASE = {
         shipmentDetails: { service: 'Standard', weight: '2.0', pieces: '1', date: '2026-06-21' },
         source: 'ROUTE3 Database',
         isVerified: true,
-        isRealData: true
+        isRealData: true,
+        isUserCreated: false
     }
 };
-
-// ==================== MAIN TRACKING ROUTE - COMPLETE ====================
-app.get('/api/track/:trackingNumber', async (req, res) => {
-    const { trackingNumber } = req.params;
-    const cleanNumber = trackingNumber.trim();
-    console.log(`\n🔍 ===== TRACKING REQUEST: ${cleanNumber} =====`);
-
-    if (!cleanNumber || cleanNumber.length < 5) {
-        return res.status(400).json({
-            error: 'Invalid tracking number',
-            message: 'Please enter a valid tracking number',
-            success: false
-        });
-    }
-
-    // ============================================================
-    // STEP 1: Try SmartCargo API for REAL DATA
-    // ============================================================
-    try {
-        console.log(`📡 Attempting SmartCargo API for: ${cleanNumber}`);
-        const result = await fetchFromSmartCargo(cleanNumber);
-        
-        if (result && result.success && result.data) {
-            const d = result.data;
-            
-            if (d.trackingStatus && d.trackingStatus.length > 0) {
-                console.log(`✅✅✅ REAL DATA from SmartCargo for: ${cleanNumber}`);
-                console.log(`📊 Found ${d.trackingStatus.length} tracking events`);
-                
-                const timeline = d.trackingStatus.map(e => ({
-                    date: e.statusDate || '',
-                    time: e.statusTime || '00:00:00',
-                    location: rebrandText(e.location) || 'Processing',
-                    status: rebrandText(e.status) || 'In Transit'
-                }));
-                
-                const latest = timeline[timeline.length - 1];
-                
-                // ===== COMPLETE RESPONSE WITH ALL FIELDS =====
-                const response = {
-                    trackingNumber: d.trackingNo || cleanNumber,
-                    latestStatus: latest?.status || 'In Transit',
-                    latestLocation: latest?.location || 'Processing',
-                    lastUpdate: latest ? `${latest.date} ${latest.time}` : new Date().toISOString(),
-                    
-                    // Origin & Destination
-                    origin: d.shipperCity ? `${d.shipperCity}, ${d.shipperCountry || 'Pakistan'}` : 'Pakistan',
-                    destination: d.consgineeCity ? `${d.consgineeCity}, ${d.consgineeCountry || 'International'}` : 'International',
-                    originCode: d.shipperCity || 'N/A',
-                    destinationCode: d.consgineeCity || 'N/A',
-                    
-                    // Timeline (full history)
-                    timeline: timeline,
-                    
-                    // Shipment Details (ALL FIELDS)
-                    shipmentDetails: {
-                        service: d.serviceName || 'Standard',
-                        weight: d.weight || 'N/A',
-                        weightUnit: d.pkgsUnit || 'kg',
-                        pieces: d.pkgs || '1',
-                        date: d.cnDate || '',
-                        mode: d.modeOfTransport || 'Air',
-                        product: d.productName || 'N/A',
-                        referenceNo: d.refNo || 'N/A'
-                    },
-                    
-                    // Shipper Complete Info
-                    shipper: {
-                        name: d.shipperName || 'N/A',
-                        city: d.shipperCity || 'N/A',
-                        country: d.shipperCountry || 'N/A',
-                        address: d.shipperAddress || 'N/A',
-                        phone: d.shipperPhone || 'N/A'
-                    },
-                    
-                    // Consignee Complete Info
-                    consignee: {
-                        name: d.consgineeName || 'N/A',
-                        city: d.consgineeCity || 'N/A',
-                        country: d.consgineeCountry || 'N/A',
-                        zip: d.consigneeZipCode || 'N/A',
-                        address: d.consigneeAddress || 'N/A',
-                        phone: d.consigneePhone || 'N/A'
-                    },
-                    
-                    // Additional Details
-                    bookingDate: d.bookingDate || d.cnDate || '',
-                    deliveryDate: d.expectedDeliveryDate || 'N/A',
-                    pieces: d.pkgs || '1',
-                    totalWeight: d.weight || 'N/A',
-                    
-                    // Source
-                    source: 'SmartCargo ROUTE3 - Live Data',
-                    isVerified: true,
-                    isRealData: true,
-                    isGlobal: true
-                };
-                
-                console.log(`✅ Returning REAL SmartCargo data for: ${cleanNumber}`);
-                console.log(`📍 Origin: ${response.origin} → Destination: ${response.destination}`);
-                console.log(`📦 ${response.timeline.length} events found`);
-                return res.json(response);
-            }
-        }
-        console.log(`⚠️ SmartCargo returned no data for: ${cleanNumber}`);
-        
-    } catch (error) {
-        console.log(`❌ SmartCargo API error: ${error.message}`);
-    }
-
-    // ============================================================
-    // STEP 2: Check REAL_DATA_DATABASE
-    // ============================================================
-    if (REAL_DATA_DATABASE[cleanNumber]) {
-        console.log(`✅ Found REAL data in database for: ${cleanNumber}`);
-        return res.json(REAL_DATA_DATABASE[cleanNumber]);
-    }
-
-    // ============================================================
-    // STEP 3: Not found anywhere — return an HONEST error
-    // (we no longer fabricate fake tracking history for unknown numbers)
-    // ============================================================
-    console.log(`❌ No real data found for: ${cleanNumber}`);
-    return res.status(404).json({
-        success: false,
-        error: 'Tracking number not found',
-        message: 'We could not find real tracking data for this number. Please double-check the tracking ID and try again.'
-    });
-});
 
 // ==================== ERROR HANDLING ====================
 app.use((err, req, res, next) => {
@@ -933,7 +1344,12 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n📦 Tracking System:`);
     console.log(`   1️⃣ SmartCargo API (LIVE REAL DATA) ✅`);
     console.log(`   2️⃣ ROUTE3 Database (REAL DATA) ✅`);
-    console.log(`   3️⃣ Unknown numbers → honest "not found" response (no fake data) ✅`);
+    console.log(`   3️⃣ User Created Shipments (PERSISTENT STORAGE) ✅`);
+    console.log(`   4️⃣ Customer C/N Number Support ✅`);
+    console.log(`   5️⃣ Unknown numbers → honest "not found" response ✅`);
+    console.log(`\n📦 Number Formats:`);
+    console.log(`   → Tracking ID: TRX[timestamp][random] (e.g., TRX1234567890)`);
+    console.log(`   → Customer C/N: CN[timestamp][random] (e.g., CN1234567890)`);
     console.log(`\n📦 Hardcoded demo/test tracking numbers:`);
     console.log(`   → 1350223245 (REAL - Islamabad to London - In Customs)`);
     console.log(`   → 1350215374 (REAL - Karachi to Dubai - In Transit)`);
@@ -941,6 +1357,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`   → 1350100001 (REAL - Karachi to Faisalabad - Out for Delivery)`);
     console.log(`   → 1350300001 (REAL - Lahore to Multan - In Transit)`);
     console.log(`   → 1350400001 (REAL - Islamabad to Peshawar - Delivered)`);
+    console.log(`   → User created shipments have both Tracking ID AND Customer C/N`);
     console.log(`   → Any other number is fetched LIVE from SmartCargo`);
     console.log(`\n🚀 Ready for client delivery!\n`);
 });
