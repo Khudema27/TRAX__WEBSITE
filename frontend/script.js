@@ -124,9 +124,42 @@ function showAuth() {
 
 function showAuthTab(tab) {
     showAuth();
-    document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-    document.getElementById('loginForm')?.classList.toggle('active', tab === 'login');
-    document.getElementById('signupForm')?.classList.toggle('active', tab === 'signup');
+    setAuthView(tab);
+}
+
+// Forces exactly ONE of login / signup / otp to be visible at a time.
+// Uses inline styles (not just CSS classes) so it can never be overridden
+// by a stale class or a conflicting toggle elsewhere in the code.
+function setAuthView(view) {
+    const forms = {
+        login: document.getElementById('loginForm'),
+        signup: document.getElementById('signupForm'),
+        otp: document.getElementById('otpForm')
+    };
+    Object.keys(forms).forEach(key => {
+        const el = forms[key];
+        if (!el) return;
+        if (key === view) {
+            el.style.display = 'block';
+            el.classList.add('active');
+        } else {
+            el.style.display = 'none';
+            el.classList.remove('active');
+        }
+    });
+
+    document.querySelectorAll('.auth-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === view);
+    });
+
+    // While verifying OTP it's not a "login vs signup" choice anymore —
+    // hide the tab switcher entirely so only the OTP form is on screen.
+    const tabsEl = document.querySelector('.auth-tabs');
+    if (tabsEl) tabsEl.style.display = (view === 'otp') ? 'none' : 'flex';
+
+    if (view !== 'otp') {
+        clearInterval(otpTimerInterval);
+    }
 }
 
 function showDashboard() {
@@ -225,13 +258,18 @@ async function signup(name, email, phone, password) {
     showLoading(true);
     try {
         const result = await apiRequest('/auth/signup', 'POST', { name, email, phone, password });
-        authToken = result.token;
-        currentUser = result.user;
-        localStorage.setItem('authToken', authToken);
-        localStorage.setItem('currentUser', JSON.stringify(currentUser));
         showLoading(false);
-        showToast(`Welcome ${name}! Account created successfully 🎉`, 'success');
-        showDashboard();
+        if (result.requiresVerification) {
+            showToast('Account created! Check your email for a verification code 📧', 'success');
+            showOtpScreen(email);
+        } else if (result.token) {
+            // Fallback path in case verification is ever disabled server-side
+            authToken = result.token;
+            currentUser = result.user;
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            showDashboard();
+        }
     } catch (error) {
         showLoading(false);
         if (error.message.toLowerCase().includes('email already exists') || 
@@ -239,10 +277,7 @@ async function signup(name, email, phone, password) {
             error.message.toLowerCase().includes('email already registered')) {
             showToast('This email is already registered. Please login instead.', 'error');
             setTimeout(() => {
-                document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-                document.querySelector('[data-tab="login"]')?.classList.add('active');
-                document.getElementById('loginForm')?.classList.add('active');
-                document.getElementById('signupForm')?.classList.remove('active');
+                setAuthView('login');
                 const loginEmail = document.getElementById('loginEmail');
                 if (loginEmail) loginEmail.value = email;
             }, 1000);
@@ -270,13 +305,110 @@ async function login(email, password) {
         showDashboard();
     } catch (error) {
         showLoading(false);
-        if (error.message.toLowerCase().includes('invalid credentials') || 
+        if (error.message.toLowerCase().includes('verify your email')) {
+            showToast('Please verify your email first — we sent you a new code 📧', 'error');
+            showOtpScreen(email);
+        } else if (error.message.toLowerCase().includes('invalid credentials') || 
             error.message.toLowerCase().includes('invalid email') ||
             error.message.toLowerCase().includes('user not found')) {
             showToast('Invalid email or password. Please try again.', 'error');
         } else {
             showToast(error.message || 'Login failed. Please try again.', 'error');
         }
+    }
+}
+
+// ==================== EMAIL OTP VERIFICATION ====================
+let otpTimerInterval = null;
+let otpPendingEmail = null;
+
+function showOtpScreen(email) {
+    otpPendingEmail = email;
+    document.getElementById('otpEmailDisplay').textContent = email;
+    setAuthView('otp');
+
+    const digits = document.querySelectorAll('.otp-digit');
+    digits.forEach(d => d.value = '');
+    digits[0]?.focus();
+
+    startOtpCountdown(10 * 60); // 10 minutes, matches server-side expiry
+}
+
+function startOtpCountdown(seconds) {
+    clearInterval(otpTimerInterval);
+    const resendBtn = document.getElementById('resendOtpBtn');
+    const timerText = document.getElementById('otpTimerText');
+    let remaining = seconds;
+    let resendCooldown = 45; // matches server-side resend cooldown
+    if (resendBtn) resendBtn.disabled = true;
+
+    otpTimerInterval = setInterval(() => {
+        remaining -= 1;
+        resendCooldown -= 1;
+
+        const m = Math.floor(Math.max(remaining, 0) / 60).toString().padStart(2, '0');
+        const s = Math.max(remaining, 0) % 60;
+        if (timerText) {
+            timerText.textContent = remaining > 0
+                ? `Code expires in ${m}:${s.toString().padStart(2, '0')}`
+                : 'Code expired — request a new one';
+        }
+
+        if (resendCooldown <= 0 && resendBtn) {
+            resendBtn.disabled = false;
+        }
+
+        if (remaining <= 0) {
+            clearInterval(otpTimerInterval);
+        }
+    }, 1000);
+}
+
+function getOtpValue() {
+    return Array.from(document.querySelectorAll('.otp-digit')).map(d => d.value.trim()).join('');
+}
+
+async function verifyOtp() {
+    const otp = getOtpValue();
+    if (otp.length !== 6) {
+        showToast('Please enter the full 6-digit code', 'error');
+        return;
+    }
+    if (!otpPendingEmail) {
+        showToast('Something went wrong — please sign up again', 'error');
+        return;
+    }
+
+    showLoading(true);
+    try {
+        const result = await apiRequest('/auth/verify-otp', 'POST', { email: otpPendingEmail, otp });
+        authToken = result.token;
+        currentUser = result.user;
+        localStorage.setItem('authToken', authToken);
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        showLoading(false);
+        clearInterval(otpTimerInterval);
+        showToast(`Email verified! Welcome, ${currentUser.name} 🎉`, 'success');
+        showDashboard();
+    } catch (error) {
+        showLoading(false);
+        showToast(error.message || 'Verification failed. Please try again.', 'error');
+        document.querySelectorAll('.otp-digit').forEach(d => d.value = '');
+        document.querySelector('.otp-digit')?.focus();
+    }
+}
+
+async function resendOtp() {
+    if (!otpPendingEmail) return;
+    showLoading(true);
+    try {
+        await apiRequest('/auth/resend-otp', 'POST', { email: otpPendingEmail });
+        showLoading(false);
+        showToast('New code sent to your email 📧', 'success');
+        startOtpCountdown(10 * 60);
+    } catch (error) {
+        showLoading(false);
+        showToast(error.message || 'Could not resend code', 'error');
     }
 }
 
@@ -728,10 +860,25 @@ function printCurrentShipment() {
 }
 
 // ==================== COMPLETE PRINT SHIPMENT FUNCTIONS WITH PDF BUTTON AT BOTTOM ====================
+function generateBarcodeBars(seedText) {
+    // Deterministic pseudo-barcode purely for visual effect (not scannable).
+    let seed = 0;
+    for (let i = 0; i < seedText.length; i++) seed += seedText.charCodeAt(i) * (i + 1);
+    let bars = '';
+    for (let i = 0; i < 46; i++) {
+        seed = (seed * 9301 + 49297) % 233280;
+        const width = (seed / 233280) > 0.5 ? 2.4 : 1.2;
+        bars += `<div style="width:${width}px;background:#111;height:100%;"></div>`;
+    }
+    return bars;
+}
+
 function generateShipmentHTML(shipmentData) {
     const now = new Date();
-    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const barcodeBars = generateBarcodeBars(shipmentData.trackingNumber || 'TRX00000000');
+    const apxSynced = !!shipmentData.apxSynced;
     
     return `
     <!DOCTYPE html>
@@ -739,375 +886,582 @@ function generateShipmentHTML(shipmentData) {
     <head>
         <meta charset="UTF-8">
         <title>ROUTE3 Airway Bill - ${shipmentData.trackingNumber}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { 
-                font-family: 'Courier New', monospace;
-                background: #f0f0f0;
+                font-family: 'Inter', -apple-system, sans-serif;
+                background: #e8ede9;
+                background-image: radial-gradient(circle at 20% 10%, #dcf3e6 0%, transparent 45%),
+                                   radial-gradient(circle at 85% 90%, #d9ecf5 0%, transparent 45%);
                 display: flex;
                 justify-content: center;
-                padding: 40px 20px;
+                padding: 22px 16px;
+                color: #1e293b;
             }
             .label-container {
-                max-width: 800px;
+                max-width: 620px;
                 width: 100%;
-                background: white;
-                padding: 30px 35px;
-                border: 2px solid #1a1a1a;
-                border-radius: 8px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+                background: #ffffff;
+                border-radius: 22px;
+                overflow: hidden;
+                box-shadow: 0 20px 60px rgba(6, 78, 59, 0.18), 0 2px 8px rgba(0,0,0,0.06);
             }
-            .header {
+
+            /* ---- Header banner ---- */
+            .banner {
+                background: linear-gradient(120deg, #053f30 0%, #0a6b4f 55%, #10b981 130%);
+                padding: 18px 26px 16px;
+                color: white;
+                position: relative;
+                overflow: hidden;
+            }
+            .banner::after {
+                content: '';
+                position: absolute;
+                right: -50px; top: -50px;
+                width: 170px; height: 170px;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.07);
+            }
+            .banner::before {
+                content: '';
+                position: absolute;
+                left: 40%; bottom: -40px;
+                width: 90px; height: 90px;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.05);
+            }
+            .banner-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
-                border-bottom: 3px double #1a1a1a;
-                padding-bottom: 15px;
-                margin-bottom: 20px;
+                position: relative;
+                z-index: 1;
             }
-            .logo-section h1 {
-                font-size: 28px;
+            .brand-mark {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .brand-icon {
+                width: 36px; height: 36px;
+                background: rgba(255,255,255,0.16);
+                border: 1px solid rgba(255,255,255,0.32);
+                border-radius: 11px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 16px;
+            }
+            .brand-mark h1 {
+                font-size: 18px;
                 font-weight: 800;
+                letter-spacing: 0.4px;
+                line-height: 1.1;
+            }
+            .brand-mark .sub {
+                font-size: 9.5px;
+                color: rgba(255,255,255,0.78);
                 letter-spacing: 2px;
-                color: #064e3b;
-            }
-            .logo-section .sub {
-                font-size: 11px;
-                color: #666;
-                letter-spacing: 4px;
                 text-transform: uppercase;
+                font-weight: 600;
+                margin-top: 2px;
             }
-            .badge-section {
+            .banner-right {
                 text-align: right;
             }
-            .badge-section .badge {
-                background: #064e3b;
-                color: white;
-                padding: 6px 16px;
-                font-size: 12px;
+            .awb-pill {
+                background: rgba(255,255,255,0.18);
+                border: 1px solid rgba(255,255,255,0.35);
+                backdrop-filter: blur(4px);
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 9.5px;
                 font-weight: 700;
-                letter-spacing: 1px;
-                border-radius: 4px;
+                letter-spacing: 1.3px;
                 display: inline-block;
                 margin-bottom: 6px;
             }
-            .badge-section .type {
+            .service-type {
                 font-size: 13px;
-                font-weight: 700;
-                color: #dc2626;
-                letter-spacing: 1px;
+                font-weight: 800;
+                letter-spacing: 0.4px;
+            }
+
+            /* ---- Body ---- */
+            .body-inner { padding: 18px 26px 20px; }
+
+            .tracking-block {
+                background: linear-gradient(135deg, #f0fdf7 0%, #f8fafc 100%);
+                border: 1.5px solid #d1f5e3;
+                border-radius: 14px;
+                padding: 14px 18px 12px;
+                text-align: center;
+                margin-bottom: 12px;
+                position: relative;
+            }
+            .tracking-block::before {
+                content: '✦';
+                position: absolute;
+                top: 8px; left: 14px;
+                color: #a7e9c9;
+                font-size: 11px;
+            }
+            .tracking-block::after {
+                content: '✦';
+                position: absolute;
+                top: 8px; right: 14px;
+                color: #a7e9c9;
+                font-size: 11px;
             }
             .tracking-number {
-                background: #f8fafc;
-                border: 2px dashed #064e3b;
-                padding: 12px 18px;
-                text-align: center;
-                font-size: 24px;
-                font-weight: 800;
-                letter-spacing: 3px;
-                color: #064e3b;
-                margin-bottom: 8px;
-                border-radius: 6px;
-            }
-            .tracking-number small {
-                font-size: 12px;
-                font-weight: 400;
-                color: #666;
-                display: block;
-                letter-spacing: 1px;
-            }
-            .cn-number {
-                text-align: center;
-                font-size: 18px;
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 21px;
                 font-weight: 700;
-                color: #2563eb;
-                letter-spacing: 2px;
-                margin-bottom: 20px;
-                padding: 8px;
+                letter-spacing: 2.5px;
+                color: #053f30;
+            }
+            .tracking-number .caption {
+                font-size: 9.5px;
+                font-weight: 600;
+                color: #64748b;
+                text-transform: uppercase;
+                letter-spacing: 1.3px;
+                margin-top: 3px;
+            }
+            .barcode-strip {
+                display: flex;
+                align-items: stretch;
+                justify-content: center;
+                gap: 1.3px;
+                height: 30px;
+                margin: 10px 0 3px;
+            }
+            .barcode-caption {
+                text-align: center;
+                font-size: 8.5px;
+                letter-spacing: 2.5px;
+                color: #94a3b8;
+                text-transform: uppercase;
+                font-family: 'JetBrains Mono', monospace;
+            }
+
+            .cn-block {
+                text-align: center;
+                margin: 10px 0 3px;
+                padding: 9px;
                 background: #eff6ff;
-                border-radius: 6px;
+                border-radius: 12px;
                 border: 1px solid #bfdbfe;
             }
-            .cn-number small {
-                font-size: 11px;
-                font-weight: 400;
-                color: #64748b;
-                display: block;
-                letter-spacing: 1px;
+            .cn-block .cn-num {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 14.5px;
+                font-weight: 700;
+                color: #1d4ed8;
+                letter-spacing: 1.3px;
             }
+            .cn-block .caption {
+                font-size: 9px;
+                font-weight: 600;
+                color: #64748b;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                margin-top: 2px;
+            }
+
+            .badge-row { display: flex; justify-content: center; margin: 12px 0; }
+            .sync-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 9.5px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                padding: 5px 13px;
+                border-radius: 20px;
+            }
+            .sync-badge.synced { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+            .sync-badge.pending { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+
+            /* ---- Route ---- */
+            .route-strip {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                background: #f8fafc;
+                border-radius: 14px;
+                padding: 11px 16px;
+                margin-bottom: 14px;
+            }
+            .route-point { flex: 1; text-align: center; }
+            .route-point .city {
+                font-size: 12.5px;
+                font-weight: 700;
+                color: #053f30;
+            }
+            .route-point .tag {
+                font-size: 8.5px;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                font-weight: 600;
+                margin-top: 1px;
+            }
+            .route-line {
+                flex: 1.4;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .route-line .dots {
+                flex: 1;
+                height: 0;
+                border-top: 2px dashed #cbd5e1;
+            }
+            .route-line .plane {
+                color: #10b981;
+                font-size: 14px;
+                transform: rotate(90deg);
+            }
+
+            /* ---- Info sections ---- */
             .grid-2 {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 25px;
-                margin-bottom: 20px;
-            }
-            .section {
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                padding: 14px 16px;
-                background: #fafafa;
-            }
-            .section-title {
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                color: #888;
-                border-bottom: 1px solid #eee;
-                padding-bottom: 6px;
-                margin-bottom: 10px;
-            }
-            .field {
-                font-size: 14px;
-                margin-bottom: 4px;
-            }
-            .field strong {
-                font-weight: 600;
-                color: #333;
-            }
-            .field .label {
-                color: #888;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .divider {
-                border-top: 2px dashed #ddd;
-                margin: 18px 0;
-            }
-            .details-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
                 gap: 12px;
-                margin: 15px 0;
+                margin-bottom: 12px;
             }
-            .detail-item {
-                text-align: center;
-                padding: 10px;
-                background: #f8fafc;
-                border-radius: 6px;
-                border: 1px solid #eee;
+            .info-card {
+                border-radius: 13px;
+                padding: 11px 13px;
+                background: #fafbfc;
+                border: 1px solid #eef1f4;
+                border-left: 3px solid #10b981;
             }
-            .detail-item .num {
-                font-size: 22px;
-                font-weight: 800;
-                color: #064e3b;
-            }
-            .detail-item .lbl {
-                font-size: 10px;
-                color: #888;
+            .info-card.consignee { border-left-color: #2563eb; }
+            .info-card .card-title {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 9px;
+                font-weight: 700;
                 text-transform: uppercase;
                 letter-spacing: 1px;
-            }
-            .footer {
-                margin-top: 20px;
-                padding-top: 15px;
-                border-top: 2px solid #1a1a1a;
-                display: flex;
-                justify-content: space-between;
-                font-size: 11px;
-                color: #666;
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-            .footer .created {
-                font-weight: 600;
-                color: #333;
-            }
-            .route-info {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                background: #f8fafc;
-                padding: 10px 16px;
-                border-radius: 6px;
-                margin: 10px 0;
-                font-size: 13px;
-            }
-            .route-info .arrow {
-                color: #064e3b;
-                font-size: 20px;
-                font-weight: 700;
-            }
-            .route-info .location {
-                font-weight: 600;
-                color: #064e3b;
-            }
-            
-            .pdf-button-container {
-                margin-top: 25px;
-                padding-top: 20px;
-                border-top: 2px solid #064e3b;
-                text-align: center;
-            }
-            .pdf-save-btn {
-                background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                color: white;
-                border: none;
-                padding: 14px 40px;
-                font-size: 16px;
-                font-weight: 700;
-                border-radius: 10px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                display: inline-flex;
-                align-items: center;
-                gap: 12px;
-                box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
-            }
-            .pdf-save-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(37, 99, 235, 0.5);
-            }
-            .pdf-save-btn i {
-                font-size: 20px;
-            }
-            .pdf-info {
-                margin-top: 10px;
-                font-size: 12px;
                 color: #64748b;
+                margin-bottom: 6px;
             }
-            .pdf-info i {
+            .info-card .card-title i { color: #10b981; font-size: 10px; }
+            .info-card.consignee .card-title i { color: #2563eb; }
+            .info-card .name { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
+            .info-card .line { font-size: 11px; color: #64748b; line-height: 1.4; }
+            .info-card .contact { font-size: 11px; color: #475569; margin-top: 4px; font-weight: 600; }
+            .info-card .contact i { color: #94a3b8; margin-right: 4px; width: 11px; }
+
+            .stats-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .stat-box {
+                text-align: center;
+                padding: 10px 6px;
+                background: linear-gradient(135deg, #064e3b, #0a6b4f);
+                border-radius: 13px;
+                color: white;
+            }
+            .stat-box .val { font-size: 16px; font-weight: 800; }
+            .stat-box .lbl { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.72); margin-top: 1px; font-weight: 600; }
+
+            .detail-card {
+                background: #fafbfc;
+                border: 1px solid #eef1f4;
+                border-radius: 13px;
+                padding: 11px 13px;
+                margin-bottom: 12px;
+            }
+            .detail-card .card-title {
+                font-size: 9px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #64748b;
+                margin-bottom: 6px;
+            }
+            .detail-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 3.5px 0;
+                font-size: 11.5px;
+                border-bottom: 1px dashed #eef1f4;
+            }
+            .detail-row:last-child { border-bottom: none; }
+            .detail-row .k { color: #94a3b8; font-weight: 600; }
+            .detail-row .v { color: #1e293b; font-weight: 600; text-align: right; }
+
+            .signature-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 24px;
+                margin: 14px 0 4px;
+            }
+            .signature-box {
+                border-top: 1.5px solid #cbd5e1;
+                padding-top: 5px;
+                font-size: 9px;
+                color: #94a3b8;
+                text-align: center;
+                letter-spacing: 0.4px;
+                font-weight: 600;
+            }
+
+            .meta-footer {
+                display: flex;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 6px;
+                font-size: 9px;
+                color: #94a3b8;
+                padding-top: 10px;
+                margin-top: 6px;
+                border-top: 1px solid #eef1f4;
+            }
+            .meta-footer strong { color: #475569; }
+
+            .terms-section {
+                margin-top: 8px;
+                font-size: 8px;
+                color: #c2c9d1;
+                line-height: 1.4;
+            }
+            .cute-signoff {
+                text-align: center;
+                font-size: 9.5px;
                 color: #10b981;
-                margin-right: 6px;
+                font-weight: 700;
+                margin-top: 10px;
+                letter-spacing: 0.3px;
             }
-            
+
+            /* Force browsers to actually print background colors/gradients
+               (Chrome/Edge/Firefox hide them by default to save ink). */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+
+            @page { size: A4; margin: 10mm; }
             @media print {
+                html, body { height: auto; }
                 body { background: white; padding: 0; }
-                .label-container { box-shadow: none; border: 1px solid #ccc; padding: 20px; }
-                .pdf-button-container { display: none !important; }
+                .label-container {
+                    box-shadow: none;
+                    border-radius: 0;
+                    max-width: 100%;
+                    page-break-inside: avoid;
+                }
+                .banner {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                    background: linear-gradient(120deg, #053f30 0%, #0a6b4f 55%, #10b981 130%) !important;
+                }
+                .stat-box {
+                    background: linear-gradient(135deg, #064e3b, #0a6b4f) !important;
+                }
                 .no-print { display: none !important; }
             }
             @media (max-width: 600px) {
-                .grid-2 { grid-template-columns: 1fr; gap: 12px; }
-                .details-grid { grid-template-columns: 1fr 1fr; }
-                .tracking-number { font-size: 18px; }
-                .cn-number { font-size: 15px; }
-                .route-info { flex-direction: column; gap: 8px; text-align: center; }
-                .route-info .arrow { transform: rotate(90deg); }
-                .pdf-save-btn { padding: 12px 24px; font-size: 14px; width: 100%; justify-content: center; }
+                .banner { padding: 16px 18px 14px; }
+                .body-inner { padding: 16px 18px 18px; }
+                .grid-2 { grid-template-columns: 1fr; }
+                .stats-row { grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+                .tracking-number { font-size: 17px; letter-spacing: 1.8px; }
+                .route-strip { flex-direction: column; }
+                .route-line { width: 100%; }
+                .route-line .plane { transform: rotate(180deg); }
+                .signature-row { gap: 14px; }
             }
         </style>
     </head>
     <body>
         <div class="label-container" id="printContainer">
-            <div class="header">
-                <div class="logo-section">
-                    <h1>ROUTE 3</h1>
-                    <div class="sub">TRAX Smart Logistics</div>
-                </div>
-                <div class="badge-section">
-                    <div class="badge">AIRWAY BILL</div>
-                    <div class="type">${shipmentData.service || 'STANDARD'}</div>
+
+            <div class="banner">
+                <div class="banner-row">
+                    <div class="brand-mark">
+                        <div class="brand-icon"><i class="fas fa-route"></i></div>
+                        <div>
+                            <h1>ROUTE 3 <span style="font-weight:400; opacity:0.85;">TRAX</span></h1>
+                            <div class="sub">Smart Logistics Network</div>
+                        </div>
+                    </div>
+                    <div class="banner-right">
+                        <div class="awb-pill">AIRWAY BILL</div>
+                        <div class="service-type">${(shipmentData.service || 'STANDARD').toUpperCase()}</div>
+                    </div>
                 </div>
             </div>
 
-            <div class="tracking-number">
-                ${shipmentData.trackingNumber}
-                <small>Tracking ID • Keep this number for reference</small>
-            </div>
+            <div class="body-inner">
 
-            ${shipmentData.customerCNumber ? `
-            <div class="cn-number">
-                ${shipmentData.customerCNumber}
-                <small>Customer C/N • Give this to your customer for tracking</small>
-            </div>
-            ` : ''}
+                <div class="tracking-block">
+                    <div class="tracking-number">${shipmentData.trackingNumber}</div>
+                    <div class="caption">Tracking ID · Keep this number for reference</div>
+                    <div class="barcode-strip">${barcodeBars}</div>
+                    <div class="barcode-caption">${shipmentData.trackingNumber}</div>
+                </div>
 
-            <div class="route-info">
-                <span class="location"><i class="fas fa-map-marker-alt"></i> ${shipmentData.origin || 'Pakistan'}</span>
-                <span class="arrow">→</span>
-                <span class="location"><i class="fas fa-flag-checkered"></i> ${shipmentData.destination || 'International'}</span>
-            </div>
+                ${shipmentData.customerCNumber ? `
+                <div class="cn-block">
+                    <div class="cn-num">${shipmentData.customerCNumber}</div>
+                    <div class="caption">Customer C/N · Give this to your customer for tracking</div>
+                </div>
+                ` : ''}
 
-            <div class="grid-2">
-                <div class="section">
-                    <div class="section-title">📦 Shipper Information</div>
-                    <div class="field"><strong>${shipmentData.shipperName || 'N/A'}</strong></div>
-                    <div class="field">${shipmentData.shipperAddress || 'N/A'}</div>
-                    <div class="field">${shipmentData.shipperCity || 'N/A'}</div>
-                    <div class="field"><span class="label">Contact:</span> ${shipmentData.shipperPhone || 'N/A'}</div>
+                ${shipmentData.apxSynced && shipmentData.apxTrackingNumber ? `
+                <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
+                    <div class="cn-num" style="color:#047857;">${shipmentData.apxTrackingNumber}</div>
+                    <div class="caption">APX/SmartCargo Tracking # · Verified authentic — trackable on APX too</div>
                 </div>
-                <div class="section">
-                    <div class="section-title">📍 Consignee Information</div>
-                    <div class="field"><strong>${shipmentData.consigneeName || 'N/A'}</strong></div>
-                    <div class="field">${shipmentData.consigneeAddress || 'N/A'}</div>
-                    <div class="field">${shipmentData.consigneeCity || 'N/A'}</div>
-                    <div class="field"><span class="label">Contact:</span> ${shipmentData.consigneePhone || 'N/A'}</div>
-                </div>
-            </div>
+                ` : ''}
 
-            <div class="details-grid">
-                <div class="detail-item">
-                    <div class="num">${shipmentData.pieces || '1'}</div>
-                    <div class="lbl">Pieces</div>
+                <div class="badge-row">
+                    <span class="sync-badge ${apxSynced ? 'synced' : 'pending'}">
+                        <i class="fas ${apxSynced ? 'fa-check-circle' : 'fa-clock'}"></i>
+                        ${apxSynced ? 'APX Verified — Authentic Real Data' : 'Local ROUTE3 Record'}
+                    </span>
                 </div>
-                <div class="detail-item">
-                    <div class="num">${shipmentData.weight || '0'} kg</div>
-                    <div class="lbl">Weight</div>
-                </div>
-                <div class="detail-item">
-                    <div class="num">$${shipmentData.cost || '0.00'}</div>
-                    <div class="lbl">Shipping Cost</div>
-                </div>
-            </div>
 
-            <div class="section" style="margin-bottom: 15px;">
-                <div class="section-title">📝 Shipment Details</div>
-                <div class="field"><span class="label">Description:</span> ${shipmentData.description || 'N/A'}</div>
-                <div class="field"><span class="label">Service:</span> ${shipmentData.service || 'Standard'}</div>
-                <div class="field"><span class="label">Date:</span> ${shipmentData.createdDate || dateStr}</div>
-                <div class="field"><span class="label">Status:</span> ${shipmentData.status || 'Created'}</div>
-            </div>
-
-            <div class="divider"></div>
-
-            <div class="footer">
-                <div>
-                    <span class="created">Created By:</span> ${shipmentData.createdBy || currentUser?.email || 'N/A'}
+                <div class="route-strip">
+                    <div class="route-point">
+                        <div class="city">${shipmentData.origin || 'Pakistan'}</div>
+                        <div class="tag">Origin</div>
+                    </div>
+                    <div class="route-line">
+                        <div class="dots"></div>
+                        <i class="fas fa-paper-plane plane"></i>
+                        <div class="dots"></div>
+                    </div>
+                    <div class="route-point">
+                        <div class="city">${shipmentData.destination || 'International'}</div>
+                        <div class="tag">Destination</div>
+                    </div>
                 </div>
-                <div>
-                    <span class="created">Date:</span> ${dateStr} ${timeStr}
-                </div>
-                <div>Ref: ${shipmentData.reference || 'N/A'}</div>
-            </div>
 
-            <div class="pdf-button-container no-print">
-                <button onclick="saveAsPDF()" class="pdf-save-btn">
-                    <i class="fas fa-file-pdf"></i> Save as PDF
-                </button>
-                <div class="pdf-info">
-                    <i class="fas fa-info-circle"></i> Click to save this airway bill as a PDF file on your device
+                <div class="grid-2">
+                    <div class="info-card">
+                        <div class="card-title"><i class="fas fa-box"></i> Shipper</div>
+                        <div class="name">${shipmentData.shipperName || 'N/A'}</div>
+                        <div class="line">${shipmentData.shipperAddress || 'N/A'}</div>
+                        <div class="line">${shipmentData.shipperCity || ''}</div>
+                        <div class="contact"><i class="fas fa-phone"></i>${shipmentData.shipperPhone || 'N/A'}</div>
+                    </div>
+                    <div class="info-card consignee">
+                        <div class="card-title"><i class="fas fa-map-marker-alt"></i> Consignee</div>
+                        <div class="name">${shipmentData.consigneeName || 'N/A'}</div>
+                        <div class="line">${shipmentData.consigneeAddress || 'N/A'}</div>
+                        <div class="line">${shipmentData.consigneeCity || ''}</div>
+                        <div class="contact"><i class="fas fa-phone"></i>${shipmentData.consigneePhone || 'N/A'}</div>
+                    </div>
                 </div>
+
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <div class="val">${shipmentData.pieces || '1'}</div>
+                        <div class="lbl">Pieces</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="val">${shipmentData.weight || '0'} kg</div>
+                        <div class="lbl">Weight</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="val">$${shipmentData.cost || '0.00'}</div>
+                        <div class="lbl">Cost</div>
+                    </div>
+                </div>
+
+                <div class="detail-card">
+                    <div class="card-title">Shipment Details</div>
+                    <div class="detail-row"><span class="k">Description</span><span class="v">${shipmentData.description || 'N/A'}</span></div>
+                    <div class="detail-row"><span class="k">Service</span><span class="v">${shipmentData.service || 'Standard'}</span></div>
+                    <div class="detail-row"><span class="k">Date</span><span class="v">${shipmentData.createdDate ? new Date(shipmentData.createdDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : dateStr}</span></div>
+                    <div class="detail-row"><span class="k">Status</span><span class="v">${shipmentData.status || 'Created'}</span></div>
+                </div>
+
+                <div class="signature-row">
+                    <div class="signature-box">Shipper Signature</div>
+                    <div class="signature-box">Receiver Signature</div>
+                </div>
+
+                <div class="meta-footer">
+                    <div><strong>Created by</strong> ${shipmentData.createdBy || currentUser?.email || 'N/A'}</div>
+                    <div><strong>Printed</strong> ${dateStr}, ${timeStr}</div>
+                    <div><strong>Ref</strong> ${shipmentData.reference || 'N/A'}</div>
+                </div>
+
+                <div class="terms-section">
+                    This airway bill is issued subject to ROUTE3 TRAX standard terms & conditions. Liability for loss or damage is
+                    limited as per the declared value and applicable service tier. Please retain this receipt until the shipment
+                    is confirmed delivered.
+                </div>
+
+                <div class="cute-signoff">📦 Thank you for shipping with Route 3 TRAX! ✨</div>
             </div>
         </div>
-        
-        <script>
-            function saveAsPDF() {
-                window.print();
-            }
-        <\/script>
     </body>
     </html>
     `;
 }
 
 function printShipmentLabel(shipmentData) {
-    const printWindow = window.open('', '_blank', 'width=900,height=700,scrollbars=yes');
-    if (!printWindow) {
-        showToast('Please allow popups to save the PDF', 'error');
-        return;
-    }
-    
     const html = generateShipmentHTML(shipmentData);
-    printWindow.document.write(html);
-    printWindow.document.close();
-    
-    setTimeout(() => {
-        printWindow.focus();
-        showToast('📄 Click "Save as PDF" button at the bottom to download', 'success');
-    }, 600);
+    showReceiptModal(html);
+}
+
+function showReceiptModal(html) {
+    let overlay = document.getElementById('receiptModalOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'receiptModalOverlay';
+        overlay.className = 'receipt-modal-overlay';
+        overlay.innerHTML = `
+            <div class="receipt-modal-box">
+                <button type="button" class="receipt-modal-close" id="receiptModalCloseBtn" aria-label="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+                <iframe id="receiptModalFrame" class="receipt-modal-frame"></iframe>
+                <div class="receipt-modal-footer no-print">
+                    <button type="button" class="pdf-save-btn" id="receiptModalPdfBtn">
+                        <i class="fas fa-file-pdf"></i> Save as PDF
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeReceiptModal();
+        });
+        document.getElementById('receiptModalCloseBtn').addEventListener('click', closeReceiptModal);
+        document.getElementById('receiptModalPdfBtn').addEventListener('click', () => {
+            const frame = document.getElementById('receiptModalFrame');
+            frame?.contentWindow?.print();
+        });
+    }
+
+    const frame = document.getElementById('receiptModalFrame');
+    frame.srcdoc = html;
+    overlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeReceiptModal() {
+    const overlay = document.getElementById('receiptModalOverlay');
+    if (overlay) overlay.classList.remove('show');
+    document.body.style.overflow = '';
 }
 
 function printShipmentFromHistory(trackingNumber) {
@@ -1137,7 +1491,10 @@ function printShipmentFromHistory(trackingNumber) {
                     createdDate: s.createdAt || new Date().toISOString(),
                     createdBy: s.createdBy || currentUser?.email || 'N/A',
                     reference: 'SHIP-' + Date.now().toString().slice(-6),
-                    status: s.status || 'Created'
+                    status: s.status || 'Created',
+                    apxSynced: s.apxSynced || false,
+                    apxSyncStatus: s.apxSyncStatus || 'not_configured',
+                    apxTrackingNumber: s.apxTrackingNumber || null
                 };
                 printShipmentLabel(shipmentData);
                 showToast('📄 PDF ready - Click "Save as PDF" at the bottom', 'success');
@@ -1422,6 +1779,7 @@ async function createShipment(event) {
     const quantity = document.getElementById('quantity')?.value;
     const originCountry = document.getElementById('originCountry')?.value || 'Pakistan';
     const destinationCountry = document.getElementById('destinationCountry')?.value || 'International';
+    const apxTrackingNumber = document.getElementById('apxTrackingNumber')?.value?.trim() || '';
 
     if (!shipperName || !consigneeName || !description) {
         showToast('Please fill required fields', 'error');
@@ -1449,10 +1807,17 @@ async function createShipment(event) {
             quantity: quantity || '1',
             service: 'Standard',
             origin: originCountry,
-            destination: destinationCountry
+            destination: destinationCountry,
+            apxTrackingNumber: apxTrackingNumber || undefined
         });
         
-        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}\nCost: $${result.cost}`, 'success');
+        let apxToastLine = '';
+        if (result.apxSyncStatus === 'verified') {
+            apxToastLine = '\n✅ APX Verified — authentic real tracking data';
+        } else if (result.apxSyncStatus === 'verification_failed') {
+            apxToastLine = '\n⚠️ APX number not found — please double-check it';
+        }
+        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}\nCost: $${result.cost}${apxToastLine}`, 'success');
         closeShipmentModal();
         
         // Show print option modal with both numbers
@@ -1475,7 +1840,10 @@ async function createShipment(event) {
             createdDate: new Date().toISOString(),
             createdBy: currentUser?.email || 'N/A',
             reference: 'SHIP-' + Date.now().toString().slice(-6),
-            status: 'Created'
+            status: 'Created',
+            apxSynced: result.apxSynced || false,
+            apxSyncStatus: result.apxSyncStatus || 'not_configured',
+            apxTrackingNumber: result.apxTrackingNumber || null
         });
         
         loadDashboardContent();
@@ -1503,6 +1871,14 @@ function showPrintOptionModal(shipmentData) {
                         <div style="font-size: 24px; font-weight: 700; color: #2563eb; letter-spacing: 2px; margin: 4px 0;">${shipmentData.customerCNumber}</div>
                         <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 12px;">$${shipmentData.cost.toFixed(2)}</div>
                         <div style="font-size: 13px; color: #64748b;">Shipping Cost</div>
+                        <div class="apx-sync-badge ${shipmentData.apxSynced ? 'synced' : 'pending'}" style="margin-top: 14px;">
+                            <i class="fas ${shipmentData.apxSynced ? 'fa-check-circle' : (shipmentData.apxSyncStatus === 'verification_failed' ? 'fa-triangle-exclamation' : 'fa-clock')}"></i>
+                            ${
+                                shipmentData.apxSynced ? 'APX Verified — Authentic Real Data' :
+                                shipmentData.apxSyncStatus === 'verification_failed' ? 'APX number not found — please check it' :
+                                'Saved locally (no APX number linked)'
+                            }
+                        </div>
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; text-align: left;">
@@ -1710,10 +2086,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.querySelectorAll('.auth-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            document.getElementById('loginForm').classList.toggle('active', tab.dataset.tab === 'login');
-            document.getElementById('signupForm').classList.toggle('active', tab.dataset.tab === 'signup');
+            setAuthView(tab.dataset.tab);
         });
     });
     
@@ -1731,6 +2104,42 @@ document.addEventListener('DOMContentLoaded', () => {
         const phone = document.getElementById('signupPhone').value;
         const password = document.getElementById('signupPassword').value;
         signup(name, email, phone, password);
+    });
+
+    // ---- OTP verification screen ----
+    document.getElementById('otpFormElement')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        verifyOtp();
+    });
+
+    document.getElementById('resendOtpBtn')?.addEventListener('click', resendOtp);
+
+    document.getElementById('backToSignupBtn')?.addEventListener('click', () => {
+        setAuthView('signup');
+    });
+
+    // OTP digit boxes: auto-advance forward/back, digits-only, paste support
+    const otpDigits = document.querySelectorAll('.otp-digit');
+    otpDigits.forEach((input, idx) => {
+        input.addEventListener('input', () => {
+            input.value = input.value.replace(/[^0-9]/g, '').slice(0, 1);
+            if (input.value && idx < otpDigits.length - 1) {
+                otpDigits[idx + 1].focus();
+            }
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !input.value && idx > 0) {
+                otpDigits[idx - 1].focus();
+            }
+        });
+        input.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, 6);
+            pasted.split('').forEach((digit, i) => {
+                if (otpDigits[i]) otpDigits[i].value = digit;
+            });
+            otpDigits[Math.min(pasted.length, otpDigits.length - 1)]?.focus();
+        });
     });
     
     document.querySelectorAll('.nav-btn').forEach(btn => {

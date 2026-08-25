@@ -17,6 +17,7 @@
     "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.24.1",
+    "nodemailer": "^9.0.5",
     "python-shell": "^5.0.0"
   },
   "devDependencies": {

@@ -200,6 +200,31 @@
                     </button>
                 </form>
             </div>
+
+            <div id="otpForm" class="auth-form">
+                <h3>Verify your email</h3>
+                <p>Enter the 6-digit code we sent to <strong id="otpEmailDisplay">your email</strong></p>
+                <form id="otpFormElement">
+                    <div class="otp-input-group">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="0">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="1">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="2">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="3">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="4">
+                        <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-idx="5">
+                    </div>
+                    <button type="submit" class="btn-auth">
+                        <i class="fas fa-check-circle"></i> Verify & Continue
+                    </button>
+                </form>
+                <div class="otp-actions">
+                    <span id="otpTimerText">Code expires in 10:00</span>
+                    <button type="button" id="resendOtpBtn" class="otp-resend-btn" disabled>Resend Code</button>
+                </div>
+                <button type="button" id="backToSignupBtn" class="otp-back-btn">
+                    <i class="fas fa-arrow-left"></i> Back
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -313,7 +338,7 @@
                         <input type="text" id="weight" placeholder="Weight (kg)">
                     </div>
                 </div>
-                
+
                 <div class="form-actions">
                     <button type="button" id="cancelShipmentBtn" class="btn-secondary">Cancel</button>
                     <button type="submit" class="btn-primary">Create Shipment</button>

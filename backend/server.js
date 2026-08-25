@@ -10,6 +10,8 @@ require('dotenv').config();
 const path = require('path');
 const https = require('https');
 const querystring = require('querystring');
+const { sendOTPEmail, generateOTP } = require('./services/emailService');
+const { syncShipmentToAPX } = require('./services/apxSyncService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -68,6 +70,12 @@ const UserSchema = new mongoose.Schema({
     balance: { type: Number, default: 100, min: 0 },
     shipments: [{ type: String, trim: true }],
     customerCNumbers: [{ type: String, trim: true }],
+    // ---- Email verification (OTP) ----
+    isVerified: { type: Boolean, default: false },
+    otpCode: { type: String, default: null },
+    otpExpires: { type: Date, default: null },
+    otpAttempts: { type: Number, default: 0 },
+    otpLastSentAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -139,6 +147,11 @@ const StoredShipmentSchema = new mongoose.Schema({
     destination: { type: String, default: 'International' },
     status: { type: String, default: 'Created' },
     lastUpdate: { type: String, default: '' },
+    // ---- APX / SmartCargo sync status ----
+    apxSynced: { type: Boolean, default: false },
+    apxSyncStatus: { type: String, default: 'not_configured' }, // not_configured | synced | failed | error
+    apxTrackingNumber: { type: String, default: null },
+    apxSyncMessage: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });
@@ -209,20 +222,24 @@ app.post('/api/auth/signup', [
             });
         }
         
-        const user = new User({ name, email, phone, password });
+        const otp = generateOTP();
+        const user = new User({
+            name, email, phone, password,
+            isVerified: false,
+            otpCode: otp,
+            otpExpires: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+            otpLastSentAt: new Date()
+        });
         await user.save();
-        
-        const token = user.generateToken();
-        
+
+        await sendOTPEmail(user.email, user.name, otp);
+
+        // No auth token yet — the account isn't usable until the OTP is verified.
         res.json({
             success: true,
-            token,
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                email: user.email, 
-                phone: user.phone
-            }
+            requiresVerification: true,
+            email: user.email,
+            message: 'Account created! We sent a 6-digit verification code to your email.'
         });
     } catch (error) {
         console.error('Signup error:', error);
@@ -230,6 +247,104 @@ app.post('/api/auth/signup', [
             error: 'Server error during signup', 
             success: false 
         });
+    }
+});
+
+// ==================== VERIFY OTP ====================
+app.post('/api/auth/verify-otp', [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('otp').isLength({ min: 6, max: 6 }).withMessage('Enter the 6-digit code')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: errors.array()[0].msg, success: false });
+        }
+
+        const { email, otp } = req.body;
+        const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Account not found', success: false });
+        }
+        if (user.isVerified) {
+            const token = user.generateToken();
+            return res.json({
+                success: true,
+                alreadyVerified: true,
+                token,
+                user: { id: user._id, name: user.name, email: user.email, phone: user.phone }
+            });
+        }
+        if (!user.otpCode || !user.otpExpires || user.otpExpires < new Date()) {
+            return res.status(400).json({ error: 'Code expired. Please request a new one.', success: false, expired: true });
+        }
+        if (user.otpAttempts >= 5) {
+            return res.status(429).json({ error: 'Too many incorrect attempts. Please request a new code.', success: false });
+        }
+        if (user.otpCode !== otp.trim()) {
+            user.otpAttempts += 1;
+            await user.save();
+            return res.status(400).json({ error: 'Incorrect code. Please try again.', success: false });
+        }
+
+        user.isVerified = true;
+        user.otpCode = null;
+        user.otpExpires = null;
+        user.otpAttempts = 0;
+        await user.save();
+
+        const token = user.generateToken();
+        res.json({
+            success: true,
+            token,
+            user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+            message: 'Email verified successfully!'
+        });
+    } catch (error) {
+        console.error('Verify OTP error:', error);
+        res.status(500).json({ error: 'Server error', success: false });
+    }
+});
+
+// ==================== RESEND OTP ====================
+app.post('/api/auth/resend-otp', [
+    body('email').isEmail().withMessage('Valid email is required')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: errors.array()[0].msg, success: false });
+        }
+
+        const { email } = req.body;
+        const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Account not found', success: false });
+        }
+        if (user.isVerified) {
+            return res.status(400).json({ error: 'Account already verified. Please login.', success: false });
+        }
+        // Basic cooldown: 45 seconds between resends
+        if (user.otpLastSentAt && (Date.now() - new Date(user.otpLastSentAt).getTime()) < 45 * 1000) {
+            const waitSec = Math.ceil((45 * 1000 - (Date.now() - new Date(user.otpLastSentAt).getTime())) / 1000);
+            return res.status(429).json({ error: `Please wait ${waitSec}s before requesting another code.`, success: false });
+        }
+
+        const otp = generateOTP();
+        user.otpCode = otp;
+        user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+        user.otpAttempts = 0;
+        user.otpLastSentAt = new Date();
+        await user.save();
+
+        await sendOTPEmail(user.email, user.name, otp);
+
+        res.json({ success: true, message: 'A new verification code has been sent to your email.' });
+    } catch (error) {
+        console.error('Resend OTP error:', error);
+        res.status(500).json({ error: 'Server error', success: false });
     }
 });
 
@@ -253,6 +368,24 @@ app.post('/api/auth/login', [
             return res.status(401).json({ 
                 error: 'Invalid credentials', 
                 success: false 
+            });
+        }
+
+        if (!user.isVerified) {
+            // Resend an OTP automatically so the user can verify right away
+            const otp = generateOTP();
+            user.otpCode = otp;
+            user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+            user.otpAttempts = 0;
+            user.otpLastSentAt = new Date();
+            await user.save();
+            await sendOTPEmail(user.email, user.name, otp);
+
+            return res.status(403).json({
+                error: 'Please verify your email before logging in. We sent you a new code.',
+                success: false,
+                requiresVerification: true,
+                email: user.email
             });
         }
         
@@ -358,7 +491,8 @@ app.post('/api/auth/create-shipment', authenticate, [
             quantity,
             service,
             origin,
-            destination
+            destination,
+            apxTrackingNumber // optional: real number from APX's own system, if staff already created it there
         } = req.body;
 
         // Generate Tracking Number: TRX + timestamp + random
@@ -401,6 +535,53 @@ app.post('/api/auth/create-shipment', authenticate, [
 
         await storedShipment.save();
 
+        // ==================== APX / SMARTCARGO LINK & VERIFY ====================
+        // Best-effort: never blocks or fails shipment creation on our own site.
+        //
+        // If staff already created this shipment inside the REAL APX/SmartCargo
+        // system and pasted that real tracking number, we verify it against
+        // APX's own live tracking lookup (the same one used elsewhere in this
+        // app) — this confirms the number is genuine and real APX data will
+        // show up if anyone searches it, on APX's site or on ours.
+        //
+        // If no APX number was supplied, we fall back to the auto-sync stub
+        // (safe no-op until a real write API is configured — see apxSyncService.js).
+        try {
+            if (apxTrackingNumber && apxTrackingNumber.trim()) {
+                const cleanApxNumber = apxTrackingNumber.trim();
+                try {
+                    const apxData = await fetchFromSmartCargo(cleanApxNumber);
+                    if (apxData && apxData.success) {
+                        storedShipment.apxSynced = true;
+                        storedShipment.apxSyncStatus = 'verified';
+                        storedShipment.apxTrackingNumber = cleanApxNumber;
+                        storedShipment.apxSyncMessage = 'Verified live against APX/SmartCargo — this number returns real, authentic tracking data.';
+                    } else {
+                        storedShipment.apxSynced = false;
+                        storedShipment.apxSyncStatus = 'verification_failed';
+                        storedShipment.apxTrackingNumber = cleanApxNumber;
+                        storedShipment.apxSyncMessage = 'This number was not found on APX/SmartCargo — please double-check it was entered correctly in their system.';
+                    }
+                } catch (verifyErr) {
+                    storedShipment.apxSynced = false;
+                    storedShipment.apxSyncStatus = 'verification_error';
+                    storedShipment.apxTrackingNumber = cleanApxNumber;
+                    storedShipment.apxSyncMessage = `Could not verify against APX right now: ${verifyErr.message}`;
+                }
+            } else {
+                const apxResult = await syncShipmentToAPX(storedShipment);
+                storedShipment.apxSynced = apxResult.synced;
+                storedShipment.apxSyncStatus = apxResult.status;
+                storedShipment.apxSyncMessage = apxResult.message || '';
+                if (apxResult.apxTrackingNumber) {
+                    storedShipment.apxTrackingNumber = apxResult.apxTrackingNumber;
+                }
+            }
+            await storedShipment.save();
+        } catch (syncErr) {
+            console.log('⚠️ APX sync step failed (shipment still saved locally):', syncErr.message);
+        }
+
         // Record transaction
         const transaction = new Transaction({
             userId: req.userId,
@@ -419,6 +600,10 @@ app.post('/api/auth/create-shipment', authenticate, [
             trackingNumber,
             customerCNumber,
             cost,
+            apxSynced: storedShipment.apxSynced,
+            apxSyncStatus: storedShipment.apxSyncStatus,
+            apxSyncMessage: storedShipment.apxSyncMessage,
+            apxTrackingNumber: storedShipment.apxTrackingNumber,
             message: 'Shipment created successfully!'
         });
     } catch (error) {
@@ -809,7 +994,10 @@ app.get('/api/print/:trackingNumber', authenticate, async (req, res) => {
                 status: shipment.status,
                 lastUpdate: shipment.lastUpdate,
                 createdAt: shipment.createdAt,
-                createdBy: user?.email || 'N/A'
+                createdBy: user?.email || 'N/A',
+                apxSynced: shipment.apxSynced,
+                apxSyncStatus: shipment.apxSyncStatus,
+                apxTrackingNumber: shipment.apxTrackingNumber
             }
         });
     } catch (error) {
