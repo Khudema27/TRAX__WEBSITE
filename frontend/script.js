@@ -1246,6 +1246,39 @@ function generateShipmentHTML(shipmentData) {
                 letter-spacing: 0.3px;
             }
 
+            .pdf-button-container {
+                background: #f8fafc;
+                padding: 16px 26px 18px;
+                text-align: center;
+                border-top: 1px solid #eef1f4;
+            }
+            .pdf-save-btn {
+                background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                color: white;
+                border: none;
+                padding: 12px 34px;
+                font-size: 14px;
+                font-weight: 700;
+                border-radius: 12px;
+                cursor: pointer;
+                transition: all 0.25s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 9px;
+                box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+                font-family: 'Inter', sans-serif;
+            }
+            .pdf-save-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 26px rgba(37, 99, 235, 0.45);
+            }
+            .pdf-info {
+                margin-top: 8px;
+                font-size: 10.5px;
+                color: #94a3b8;
+            }
+            .pdf-info i { color: #10b981; margin-right: 5px; }
+
             /* Force browsers to actually print background colors/gradients
                (Chrome/Edge/Firefox hide them by default to save ink). */
             * {
@@ -1254,6 +1287,7 @@ function generateShipmentHTML(shipmentData) {
                 color-adjust: exact !important;
             }
 
+            @page { size: A4; margin: 10mm; }
             @media print {
                 html, body { height: auto; }
                 body { background: white; padding: 0; }
@@ -1271,7 +1305,7 @@ function generateShipmentHTML(shipmentData) {
                 .stat-box {
                     background: linear-gradient(135deg, #064e3b, #0a6b4f) !important;
                 }
-                .no-print { display: none !important; }
+                .pdf-button-container, .no-print { display: none !important; }
             }
             @media (max-width: 600px) {
                 .banner { padding: 16px 18px 14px; }
@@ -1284,9 +1318,6 @@ function generateShipmentHTML(shipmentData) {
                 .route-line .plane { transform: rotate(180deg); }
                 .signature-row { gap: 14px; }
             }
-        </style>
-        <style id="pageOrientationStyle">
-            @page { size: A4 portrait; margin: 10mm; }
         </style>
     </head>
     <body>
@@ -1413,7 +1444,22 @@ function generateShipmentHTML(shipmentData) {
 
                 <div class="cute-signoff">📦 Thank you for shipping with Route 3 TRAX! ✨</div>
             </div>
+
+            <div class="pdf-button-container no-print">
+                <button onclick="saveAsPDF()" class="pdf-save-btn">
+                    <i class="fas fa-file-pdf"></i> Save as PDF
+                </button>
+                <div class="pdf-info">
+                    <i class="fas fa-info-circle"></i> Click to save this airway bill as a PDF file on your device
+                </div>
+            </div>
         </div>
+        
+        <script>
+            function saveAsPDF() {
+                window.print();
+            }
+        <\/script>
     </body>
     </html>
     `;
@@ -1437,14 +1483,6 @@ function showReceiptModal(html) {
                 </button>
                 <iframe id="receiptModalFrame" class="receipt-modal-frame"></iframe>
                 <div class="receipt-modal-footer no-print">
-                    <div class="orientation-toggle" id="orientationToggle">
-                        <button type="button" class="orientation-btn active" id="orientationPortraitBtn" data-orientation="portrait">
-                            <i class="fas fa-file"></i> Portrait
-                        </button>
-                        <button type="button" class="orientation-btn" id="orientationLandscapeBtn" data-orientation="landscape">
-                            <i class="fas fa-file" style="transform: rotate(90deg);"></i> Landscape
-                        </button>
-                    </div>
                     <button type="button" class="pdf-save-btn" id="receiptModalPdfBtn">
                         <i class="fas fa-file-pdf"></i> Save as PDF
                     </button>
@@ -1460,31 +1498,13 @@ function showReceiptModal(html) {
             const frame = document.getElementById('receiptModalFrame');
             frame?.contentWindow?.print();
         });
-        document.getElementById('orientationPortraitBtn').addEventListener('click', () => setReceiptOrientation('portrait'));
-        document.getElementById('orientationLandscapeBtn').addEventListener('click', () => setReceiptOrientation('landscape'));
     }
 
     const frame = document.getElementById('receiptModalFrame');
     frame.srcdoc = html;
     overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
-    // Reset to portrait by default every time a fresh label is loaded
-    frame.addEventListener('load', () => setReceiptOrientation('portrait'), { once: true });
 }
-
-// Switch the print/PDF orientation (portrait or landscape) for the receipt
-// currently loaded in the modal iframe, and reflect the choice in the toggle UI.
-function setReceiptOrientation(orientation) {
-    const frame = document.getElementById('receiptModalFrame');
-    const styleTag = frame?.contentDocument?.getElementById('pageOrientationStyle');
-    if (styleTag) {
-        styleTag.textContent = `@page { size: A4 ${orientation}; margin: 10mm; }`;
-    }
-
-    document.getElementById('orientationPortraitBtn')?.classList.toggle('active', orientation === 'portrait');
-    document.getElementById('orientationLandscapeBtn')?.classList.toggle('active', orientation === 'landscape');
-}
-window.setReceiptOrientation = setReceiptOrientation;
 
 function closeReceiptModal() {
     const overlay = document.getElementById('receiptModalOverlay');
