@@ -1254,7 +1254,6 @@ function generateShipmentHTML(shipmentData) {
                 color-adjust: exact !important;
             }
 
-            @page { size: A4; margin: 10mm; }
             @media print {
                 html, body { height: auto; }
                 body { background: white; padding: 0; }
@@ -1285,6 +1284,9 @@ function generateShipmentHTML(shipmentData) {
                 .route-line .plane { transform: rotate(180deg); }
                 .signature-row { gap: 14px; }
             }
+        </style>
+        <style id="pageOrientationStyle">
+            @page { size: A4 portrait; margin: 10mm; }
         </style>
     </head>
     <body>
@@ -1435,6 +1437,14 @@ function showReceiptModal(html) {
                 </button>
                 <iframe id="receiptModalFrame" class="receipt-modal-frame"></iframe>
                 <div class="receipt-modal-footer no-print">
+                    <div class="orientation-toggle" id="orientationToggle">
+                        <button type="button" class="orientation-btn active" id="orientationPortraitBtn" data-orientation="portrait">
+                            <i class="fas fa-file"></i> Portrait
+                        </button>
+                        <button type="button" class="orientation-btn" id="orientationLandscapeBtn" data-orientation="landscape">
+                            <i class="fas fa-file" style="transform: rotate(90deg);"></i> Landscape
+                        </button>
+                    </div>
                     <button type="button" class="pdf-save-btn" id="receiptModalPdfBtn">
                         <i class="fas fa-file-pdf"></i> Save as PDF
                     </button>
@@ -1450,13 +1460,31 @@ function showReceiptModal(html) {
             const frame = document.getElementById('receiptModalFrame');
             frame?.contentWindow?.print();
         });
+        document.getElementById('orientationPortraitBtn').addEventListener('click', () => setReceiptOrientation('portrait'));
+        document.getElementById('orientationLandscapeBtn').addEventListener('click', () => setReceiptOrientation('landscape'));
     }
 
     const frame = document.getElementById('receiptModalFrame');
     frame.srcdoc = html;
     overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
+    // Reset to portrait by default every time a fresh label is loaded
+    frame.addEventListener('load', () => setReceiptOrientation('portrait'), { once: true });
 }
+
+// Switch the print/PDF orientation (portrait or landscape) for the receipt
+// currently loaded in the modal iframe, and reflect the choice in the toggle UI.
+function setReceiptOrientation(orientation) {
+    const frame = document.getElementById('receiptModalFrame');
+    const styleTag = frame?.contentDocument?.getElementById('pageOrientationStyle');
+    if (styleTag) {
+        styleTag.textContent = `@page { size: A4 ${orientation}; margin: 10mm; }`;
+    }
+
+    document.getElementById('orientationPortraitBtn')?.classList.toggle('active', orientation === 'portrait');
+    document.getElementById('orientationLandscapeBtn')?.classList.toggle('active', orientation === 'landscape');
+}
+window.setReceiptOrientation = setReceiptOrientation;
 
 function closeReceiptModal() {
     const overlay = document.getElementById('receiptModalOverlay');
