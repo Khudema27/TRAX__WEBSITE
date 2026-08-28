@@ -1427,40 +1427,97 @@ function generateShipmentHTML(shipmentData) {
         </div>
 
         <script>
-            function downloadReceiptPDF() {
+            async function downloadReceiptPDF() {
                 const el = document.getElementById('printContainer');
+                const filename = 'ROUTE3-AWB-${shipmentData.trackingNumber}.pdf';
+                const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
 
-                // Capture the element at its true full size (not just whatever
-                // is currently visible inside the iframe/modal viewport), and
-                // size the PDF page to match the content height exactly — this
-                // is what stops taller receipts from getting cropped/cut off.
-                const elWidth = el.scrollWidth;
-                const elHeight = el.scrollHeight;
-                const pdfWidthMM = 210; // A4 width
-                const pdfHeightMM = Math.max(297, (elHeight / elWidth) * pdfWidthMM);
-
-                const opt = {
-                    margin: 0,
-                    filename: 'ROUTE3-AWB-${shipmentData.trackingNumber}.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: {
-                        scale: 2,
-                        useCORS: true,
-                        backgroundColor: '#ffffff',
-                        windowWidth: elWidth,
-                        windowHeight: elHeight,
-                        scrollX: 0,
-                        scrollY: 0
-                    },
-                    jsPDF: { unit: 'mm', format: [pdfWidthMM, pdfHeightMM], orientation: 'portrait' },
-                    pagebreak: { mode: ['avoid-all'] }
-                };
-                if (window.html2pdf) {
-                    window.html2pdf().set(opt).from(el).save();
-                } else {
-                    // Library failed to load (e.g. no internet) — fall back to browser print
-                    window.print();
+                // Wait for webfonts (Inter, JetBrains Mono, Font Awesome icon
+                // glyphs) to actually finish loading before taking the
+                // snapshot. This is why downloads were inconsistent — the
+                // capture was sometimes happening mid-reflow (fonts still
+                // swapping in), so the measured height/layout was different
+                // every time, occasionally cutting content off entirely.
+                if (document.fonts && document.fonts.ready) {
+                    try { await document.fonts.ready; } catch (e) { /* ignore */ }
                 }
+                // Also wait for any images (barcode, icons, etc.) to finish loading.
+                const pendingImages = Array.from(document.images || [])
+                    .filter(img => !img.complete)
+                    .map(img => new Promise(res => { img.onload = img.onerror = res; }));
+                if (pendingImages.length) await Promise.all(pendingImages);
+
+                // Give the browser two animation frames so any layout shift
+                // caused by the font swap above is fully flushed before we
+                // rasterize — otherwise the very first frame can still be stale.
+                await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+
+                // Prefer capturing directly with html2canvas + jsPDF so we have
+                // full control over sizing. Deliberately do NOT override
+                // windowWidth/windowHeight here — forcing a narrower virtual
+                // window causes the centered card to re-flow/shrink while the
+                // page size was still calculated from its original width,
+                // which is exactly what was causing the white space down the
+                // sides. Capturing at the element's real, already-rendered
+                // size keeps the canvas and the PDF page in sync.
+                // Reset scroll position before capturing — if the receipt was
+                // scrolled at all inside the modal, html2canvas would capture
+                // starting from that scroll offset, which is exactly what was
+                // causing blank space at the top and the bottom of the receipt
+                // getting cut off.
+                window.scrollTo(0, 0);
+
+                if (window.html2canvas && jsPDFCtor) {
+                    try {
+                        const canvas = await window.html2canvas(el, {
+                            scale: 2,
+                            useCORS: true,
+                            backgroundColor: '#ffffff',
+                            scrollX: 0,
+                            scrollY: 0,
+                            x: 0,
+                            y: 0
+                        });
+
+                        // Derive the page size FROM the actual captured canvas
+                        // (not a separately-measured pre-capture width/height),
+                        // so the image always fills the page exactly — no
+                        // mismatch, no leftover margin, no forced minimum height.
+                        const pdfWidthMM = 210; // A4 width
+                        const pdfHeightMM = (canvas.height / canvas.width) * pdfWidthMM;
+
+                        const pdf = new jsPDFCtor({
+                            unit: 'mm',
+                            format: [pdfWidthMM, pdfHeightMM],
+                            orientation: 'portrait'
+                        });
+
+                        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+                        // Full-bleed: x=0, y=0, width=page width, height=page height.
+                        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidthMM, pdfHeightMM);
+                        pdf.save(filename);
+                        return;
+                    } catch (err) {
+                        console.error('PDF generation failed, falling back:', err);
+                    }
+                }
+
+                // Fallback 1: the html2pdf.js wrapper, if the libraries above
+                // weren't exposed as globals for some reason.
+                if (window.html2pdf) {
+                    window.html2pdf().set({
+                        margin: 0,
+                        filename,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['avoid-all'] }
+                    }).from(el).save();
+                    return;
+                }
+
+                // Fallback 2: no PDF library loaded at all (e.g. no internet).
+                window.print();
             }
         <\/script>
     </body>
