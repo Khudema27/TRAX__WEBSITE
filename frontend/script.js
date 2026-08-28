@@ -889,6 +889,7 @@ function generateShipmentHTML(shipmentData) {
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { 
@@ -898,22 +899,24 @@ function generateShipmentHTML(shipmentData) {
                                    radial-gradient(circle at 85% 90%, #d9ecf5 0%, transparent 45%);
                 display: flex;
                 justify-content: center;
-                padding: 22px 16px;
+                padding: 36px 16px;
                 color: #1e293b;
+                -webkit-font-smoothing: antialiased;
             }
             .label-container {
-                max-width: 620px;
+                max-width: 640px;
                 width: 100%;
                 background: #ffffff;
-                border-radius: 22px;
+                border-radius: 26px;
                 overflow: hidden;
-                box-shadow: 0 20px 60px rgba(6, 78, 59, 0.18), 0 2px 8px rgba(0,0,0,0.06);
+                box-shadow: 0 30px 80px -12px rgba(6, 78, 59, 0.28), 0 8px 24px rgba(6, 78, 59, 0.08), 0 1px 0 rgba(255,255,255,0.6) inset;
+                border: 1px solid rgba(6, 78, 59, 0.05);
             }
 
             /* ---- Header banner ---- */
             .banner {
                 background: linear-gradient(120deg, #053f30 0%, #0a6b4f 55%, #10b981 130%);
-                padding: 18px 26px 16px;
+                padding: 24px 30px 22px;
                 color: white;
                 position: relative;
                 overflow: hidden;
@@ -947,59 +950,62 @@ function generateShipmentHTML(shipmentData) {
                 gap: 10px;
             }
             .brand-icon {
-                width: 36px; height: 36px;
+                width: 38px; height: 38px;
                 background: rgba(255,255,255,0.16);
                 border: 1px solid rgba(255,255,255,0.32);
-                border-radius: 11px;
+                border-radius: 12px;
                 display: flex; align-items: center; justify-content: center;
                 font-size: 16px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.12) inset;
             }
             .brand-mark h1 {
-                font-size: 18px;
+                font-size: 19px;
                 font-weight: 800;
-                letter-spacing: 0.4px;
-                line-height: 1.1;
+                letter-spacing: 0.3px;
+                line-height: 1.15;
             }
             .brand-mark .sub {
                 font-size: 9.5px;
-                color: rgba(255,255,255,0.78);
-                letter-spacing: 2px;
+                color: rgba(255,255,255,0.75);
+                letter-spacing: 2.2px;
                 text-transform: uppercase;
                 font-weight: 600;
-                margin-top: 2px;
+                margin-top: 3px;
             }
             .banner-right {
                 text-align: right;
             }
             .awb-pill {
-                background: rgba(255,255,255,0.18);
-                border: 1px solid rgba(255,255,255,0.35);
+                background: rgba(255,255,255,0.16);
+                border: 1px solid rgba(255,255,255,0.3);
                 backdrop-filter: blur(4px);
-                padding: 4px 12px;
+                padding: 5px 13px;
                 border-radius: 20px;
                 font-size: 9.5px;
                 font-weight: 700;
-                letter-spacing: 1.3px;
+                letter-spacing: 1.5px;
                 display: inline-block;
-                margin-bottom: 6px;
+                margin-bottom: 7px;
             }
             .service-type {
                 font-size: 13px;
                 font-weight: 800;
                 letter-spacing: 0.4px;
+                opacity: 0.95;
             }
 
             /* ---- Body ---- */
-            .body-inner { padding: 18px 26px 20px; }
+            .body-inner { padding: 24px 30px 26px; }
 
             .tracking-block {
                 background: linear-gradient(135deg, #f0fdf7 0%, #f8fafc 100%);
                 border: 1.5px solid #d1f5e3;
-                border-radius: 14px;
-                padding: 14px 18px 12px;
+                border-radius: 16px;
+                padding: 18px 20px 15px;
                 text-align: center;
-                margin-bottom: 12px;
+                margin-bottom: 16px;
                 position: relative;
+                box-shadow: 0 1px 3px rgba(6, 78, 59, 0.04);
             }
             .tracking-block::before {
                 content: '✦';
@@ -1017,9 +1023,9 @@ function generateShipmentHTML(shipmentData) {
             }
             .tracking-number {
                 font-family: 'JetBrains Mono', monospace;
-                font-size: 21px;
+                font-size: 22px;
                 font-weight: 700;
-                letter-spacing: 2.5px;
+                letter-spacing: 2.8px;
                 color: #053f30;
             }
             .tracking-number .caption {
@@ -1027,40 +1033,40 @@ function generateShipmentHTML(shipmentData) {
                 font-weight: 600;
                 color: #64748b;
                 text-transform: uppercase;
-                letter-spacing: 1.3px;
-                margin-top: 3px;
+                letter-spacing: 1.4px;
+                margin-top: 5px;
             }
             .barcode-strip {
                 display: flex;
                 align-items: stretch;
                 justify-content: center;
-                gap: 1.3px;
-                height: 30px;
-                margin: 10px 0 3px;
+                gap: 1.4px;
+                height: 32px;
+                margin: 14px 0 5px;
             }
             .barcode-caption {
                 text-align: center;
                 font-size: 8.5px;
-                letter-spacing: 2.5px;
-                color: #94a3b8;
+                letter-spacing: 2.8px;
+                color: #a3adba;
                 text-transform: uppercase;
                 font-family: 'JetBrains Mono', monospace;
             }
 
             .cn-block {
                 text-align: center;
-                margin: 10px 0 3px;
-                padding: 9px;
+                margin: 14px 0 4px;
+                padding: 11px;
                 background: #eff6ff;
-                border-radius: 12px;
+                border-radius: 14px;
                 border: 1px solid #bfdbfe;
             }
             .cn-block .cn-num {
                 font-family: 'JetBrains Mono', monospace;
-                font-size: 14.5px;
+                font-size: 15px;
                 font-weight: 700;
                 color: #1d4ed8;
-                letter-spacing: 1.3px;
+                letter-spacing: 1.4px;
             }
             .cn-block .caption {
                 font-size: 9px;
@@ -1068,10 +1074,10 @@ function generateShipmentHTML(shipmentData) {
                 color: #64748b;
                 text-transform: uppercase;
                 letter-spacing: 0.8px;
-                margin-top: 2px;
+                margin-top: 3px;
             }
 
-            .badge-row { display: flex; justify-content: center; margin: 12px 0; }
+            .badge-row { display: flex; justify-content: center; margin: 16px 0; }
             .sync-badge {
                 display: inline-flex;
                 align-items: center;
@@ -1080,8 +1086,9 @@ function generateShipmentHTML(shipmentData) {
                 font-weight: 700;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
-                padding: 5px 13px;
+                padding: 6px 15px;
                 border-radius: 20px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.04);
             }
             .sync-badge.synced { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
             .sync-badge.pending { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
@@ -1090,25 +1097,27 @@ function generateShipmentHTML(shipmentData) {
             .route-strip {
                 display: flex;
                 align-items: center;
-                gap: 12px;
+                gap: 14px;
                 background: #f8fafc;
-                border-radius: 14px;
-                padding: 11px 16px;
-                margin-bottom: 14px;
+                border: 1px solid #f1f5f9;
+                border-radius: 16px;
+                padding: 14px 18px;
+                margin-bottom: 18px;
             }
             .route-point { flex: 1; text-align: center; }
             .route-point .city {
-                font-size: 12.5px;
+                font-size: 13px;
                 font-weight: 700;
                 color: #053f30;
+                letter-spacing: 0.1px;
             }
             .route-point .tag {
                 font-size: 8.5px;
                 color: #94a3b8;
                 text-transform: uppercase;
-                letter-spacing: 0.8px;
+                letter-spacing: 1px;
                 font-weight: 600;
-                margin-top: 1px;
+                margin-top: 2px;
             }
             .route-line {
                 flex: 1.4;
@@ -1131,15 +1140,16 @@ function generateShipmentHTML(shipmentData) {
             .grid-2 {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 12px;
-                margin-bottom: 12px;
+                gap: 14px;
+                margin-bottom: 16px;
             }
             .info-card {
-                border-radius: 13px;
-                padding: 11px 13px;
+                border-radius: 15px;
+                padding: 14px 16px;
                 background: #fafbfc;
                 border: 1px solid #eef1f4;
                 border-left: 3px solid #10b981;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
             }
             .info-card.consignee { border-left-color: #2563eb; }
             .info-card .card-title {
@@ -1149,52 +1159,53 @@ function generateShipmentHTML(shipmentData) {
                 font-size: 9px;
                 font-weight: 700;
                 text-transform: uppercase;
-                letter-spacing: 1px;
+                letter-spacing: 1.1px;
                 color: #64748b;
-                margin-bottom: 6px;
+                margin-bottom: 8px;
             }
             .info-card .card-title i { color: #10b981; font-size: 10px; }
             .info-card.consignee .card-title i { color: #2563eb; }
-            .info-card .name { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
-            .info-card .line { font-size: 11px; color: #64748b; line-height: 1.4; }
-            .info-card .contact { font-size: 11px; color: #475569; margin-top: 4px; font-weight: 600; }
+            .info-card .name { font-size: 13.5px; font-weight: 700; color: #1e293b; margin-bottom: 3px; }
+            .info-card .line { font-size: 11px; color: #64748b; line-height: 1.5; }
+            .info-card .contact { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 600; }
             .info-card .contact i { color: #94a3b8; margin-right: 4px; width: 11px; }
 
             .stats-row {
                 display: grid;
                 grid-template-columns: 1fr 1fr 1fr;
-                gap: 10px;
-                margin-bottom: 12px;
+                gap: 12px;
+                margin-bottom: 16px;
             }
             .stat-box {
                 text-align: center;
-                padding: 10px 6px;
-                background: linear-gradient(135deg, #064e3b, #0a6b4f);
-                border-radius: 13px;
+                padding: 13px 6px;
+                background: linear-gradient(150deg, #064e3b, #0a6b4f 70%, #0d7a5a);
+                border-radius: 15px;
                 color: white;
+                box-shadow: 0 8px 18px -6px rgba(6, 78, 59, 0.4);
             }
-            .stat-box .val { font-size: 16px; font-weight: 800; }
-            .stat-box .lbl { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.72); margin-top: 1px; font-weight: 600; }
+            .stat-box .val { font-size: 17px; font-weight: 800; letter-spacing: 0.2px; }
+            .stat-box .lbl { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.9px; color: rgba(255,255,255,0.72); margin-top: 2px; font-weight: 600; }
 
             .detail-card {
                 background: #fafbfc;
                 border: 1px solid #eef1f4;
-                border-radius: 13px;
-                padding: 11px 13px;
-                margin-bottom: 12px;
+                border-radius: 15px;
+                padding: 14px 16px;
+                margin-bottom: 16px;
             }
             .detail-card .card-title {
                 font-size: 9px;
                 font-weight: 700;
                 text-transform: uppercase;
-                letter-spacing: 1px;
+                letter-spacing: 1.1px;
                 color: #64748b;
-                margin-bottom: 6px;
+                margin-bottom: 8px;
             }
             .detail-row {
                 display: flex;
                 justify-content: space-between;
-                padding: 3.5px 0;
+                padding: 5px 0;
                 font-size: 11.5px;
                 border-bottom: 1px dashed #eef1f4;
             }
@@ -1205,16 +1216,16 @@ function generateShipmentHTML(shipmentData) {
             .signature-row {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 24px;
-                margin: 14px 0 4px;
+                gap: 28px;
+                margin: 22px 0 6px;
             }
             .signature-box {
                 border-top: 1.5px solid #cbd5e1;
-                padding-top: 5px;
+                padding-top: 7px;
                 font-size: 9px;
                 color: #94a3b8;
                 text-align: center;
-                letter-spacing: 0.4px;
+                letter-spacing: 0.5px;
                 font-weight: 600;
             }
 
@@ -1225,59 +1236,26 @@ function generateShipmentHTML(shipmentData) {
                 gap: 6px;
                 font-size: 9px;
                 color: #94a3b8;
-                padding-top: 10px;
-                margin-top: 6px;
+                padding-top: 12px;
+                margin-top: 10px;
                 border-top: 1px solid #eef1f4;
             }
             .meta-footer strong { color: #475569; }
 
             .terms-section {
-                margin-top: 8px;
+                margin-top: 10px;
                 font-size: 8px;
                 color: #c2c9d1;
-                line-height: 1.4;
+                line-height: 1.5;
             }
             .cute-signoff {
                 text-align: center;
                 font-size: 9.5px;
-                color: #10b981;
+                color: #0a6b4f;
                 font-weight: 700;
-                margin-top: 10px;
+                margin-top: 14px;
                 letter-spacing: 0.3px;
             }
-
-            .pdf-button-container {
-                background: #f8fafc;
-                padding: 16px 26px 18px;
-                text-align: center;
-                border-top: 1px solid #eef1f4;
-            }
-            .pdf-save-btn {
-                background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                color: white;
-                border: none;
-                padding: 12px 34px;
-                font-size: 14px;
-                font-weight: 700;
-                border-radius: 12px;
-                cursor: pointer;
-                transition: all 0.25s ease;
-                display: inline-flex;
-                align-items: center;
-                gap: 9px;
-                box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
-                font-family: 'Inter', sans-serif;
-            }
-            .pdf-save-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 10px 26px rgba(37, 99, 235, 0.45);
-            }
-            .pdf-info {
-                margin-top: 8px;
-                font-size: 10.5px;
-                color: #94a3b8;
-            }
-            .pdf-info i { color: #10b981; margin-right: 5px; }
 
             /* Force browsers to actually print background colors/gradients
                (Chrome/Edge/Firefox hide them by default to save ink). */
@@ -1295,6 +1273,8 @@ function generateShipmentHTML(shipmentData) {
                     box-shadow: none;
                     border-radius: 0;
                     max-width: 100%;
+                }
+                .info-card, .detail-card, .route-strip, .tracking-block {
                     page-break-inside: avoid;
                 }
                 .banner {
@@ -1305,7 +1285,7 @@ function generateShipmentHTML(shipmentData) {
                 .stat-box {
                     background: linear-gradient(135deg, #064e3b, #0a6b4f) !important;
                 }
-                .pdf-button-container, .no-print { display: none !important; }
+                .no-print { display: none !important; }
             }
             @media (max-width: 600px) {
                 .banner { padding: 16px 18px 14px; }
@@ -1444,20 +1424,43 @@ function generateShipmentHTML(shipmentData) {
 
                 <div class="cute-signoff">📦 Thank you for shipping with Route 3 TRAX! ✨</div>
             </div>
-
-            <div class="pdf-button-container no-print">
-                <button onclick="saveAsPDF()" class="pdf-save-btn">
-                    <i class="fas fa-file-pdf"></i> Save as PDF
-                </button>
-                <div class="pdf-info">
-                    <i class="fas fa-info-circle"></i> Click to save this airway bill as a PDF file on your device
-                </div>
-            </div>
         </div>
-        
+
         <script>
-            function saveAsPDF() {
-                window.print();
+            function downloadReceiptPDF() {
+                const el = document.getElementById('printContainer');
+
+                // Capture the element at its true full size (not just whatever
+                // is currently visible inside the iframe/modal viewport), and
+                // size the PDF page to match the content height exactly — this
+                // is what stops taller receipts from getting cropped/cut off.
+                const elWidth = el.scrollWidth;
+                const elHeight = el.scrollHeight;
+                const pdfWidthMM = 210; // A4 width
+                const pdfHeightMM = Math.max(297, (elHeight / elWidth) * pdfWidthMM);
+
+                const opt = {
+                    margin: 0,
+                    filename: 'ROUTE3-AWB-${shipmentData.trackingNumber}.pdf',
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: {
+                        scale: 2,
+                        useCORS: true,
+                        backgroundColor: '#ffffff',
+                        windowWidth: elWidth,
+                        windowHeight: elHeight,
+                        scrollX: 0,
+                        scrollY: 0
+                    },
+                    jsPDF: { unit: 'mm', format: [pdfWidthMM, pdfHeightMM], orientation: 'portrait' },
+                    pagebreak: { mode: ['avoid-all'] }
+                };
+                if (window.html2pdf) {
+                    window.html2pdf().set(opt).from(el).save();
+                } else {
+                    // Library failed to load (e.g. no internet) — fall back to browser print
+                    window.print();
+                }
             }
         <\/script>
     </body>
@@ -1496,7 +1499,11 @@ function showReceiptModal(html) {
         document.getElementById('receiptModalCloseBtn').addEventListener('click', closeReceiptModal);
         document.getElementById('receiptModalPdfBtn').addEventListener('click', () => {
             const frame = document.getElementById('receiptModalFrame');
-            frame?.contentWindow?.print();
+            if (frame?.contentWindow?.downloadReceiptPDF) {
+                frame.contentWindow.downloadReceiptPDF();
+            } else {
+                frame?.contentWindow?.print();
+            }
         });
     }
 
