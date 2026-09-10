@@ -305,8 +305,9 @@ async function login(email, password) {
         showDashboard();
     } catch (error) {
         showLoading(false);
-        if (error.message.toLowerCase().includes('verify your email')) {
-            showToast('Please verify your email first — we sent you a new code 📧', 'error');
+        if (error.message.toLowerCase().includes('verification code') ||
+            error.message.toLowerCase().includes('verify your email')) {
+            showToast('Enter the code we just emailed you to finish logging in 📧', 'info');
             showOtpScreen(email);
         } else if (error.message.toLowerCase().includes('invalid credentials') || 
             error.message.toLowerCase().includes('invalid email') ||
@@ -336,15 +337,11 @@ function showOtpScreen(email) {
 
 function startOtpCountdown(seconds) {
     clearInterval(otpTimerInterval);
-    const resendBtn = document.getElementById('resendOtpBtn');
     const timerText = document.getElementById('otpTimerText');
     let remaining = seconds;
-    let resendCooldown = 45; // matches server-side resend cooldown
-    if (resendBtn) resendBtn.disabled = true;
 
     otpTimerInterval = setInterval(() => {
         remaining -= 1;
-        resendCooldown -= 1;
 
         const m = Math.floor(Math.max(remaining, 0) / 60).toString().padStart(2, '0');
         const s = Math.max(remaining, 0) % 60;
@@ -352,10 +349,6 @@ function startOtpCountdown(seconds) {
             timerText.textContent = remaining > 0
                 ? `Code expires in ${m}:${s.toString().padStart(2, '0')}`
                 : 'Code expired — request a new one';
-        }
-
-        if (resendCooldown <= 0 && resendBtn) {
-            resendBtn.disabled = false;
         }
 
         if (remaining <= 0) {

@@ -267,15 +267,10 @@ app.post('/api/auth/verify-otp', [
         if (!user) {
             return res.status(404).json({ error: 'Account not found', success: false });
         }
-        if (user.isVerified) {
-            const token = user.generateToken();
-            return res.json({
-                success: true,
-                alreadyVerified: true,
-                token,
-                user: { id: user._id, name: user.name, email: user.email, phone: user.phone }
-            });
-        }
+        // Note: we no longer short-circuit on user.isVerified here — a
+        // verified account can still have a fresh OTP pending from the
+        // login step, and that code must be checked just like a signup code.
+        const wasAlreadyVerified = user.isVerified === true;
         if (!user.otpCode || !user.otpExpires || user.otpExpires < new Date()) {
             return res.status(400).json({ error: 'Code expired. Please request a new one.', success: false, expired: true });
         }
@@ -299,7 +294,7 @@ app.post('/api/auth/verify-otp', [
             success: true,
             token,
             user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
-            message: 'Email verified successfully!'
+            message: wasAlreadyVerified ? 'Login verified successfully!' : 'Email verified successfully!'
         });
     } catch (error) {
         console.error('Verify OTP error:', error);
@@ -323,14 +318,9 @@ app.post('/api/auth/resend-otp', [
         if (!user) {
             return res.status(404).json({ error: 'Account not found', success: false });
         }
-        if (user.isVerified) {
-            return res.status(400).json({ error: 'Account already verified. Please login.', success: false });
-        }
-        // Basic cooldown: 45 seconds between resends
-        if (user.otpLastSentAt && (Date.now() - new Date(user.otpLastSentAt).getTime()) < 45 * 1000) {
-            const waitSec = Math.ceil((45 * 1000 - (Date.now() - new Date(user.otpLastSentAt).getTime())) / 1000);
-            return res.status(429).json({ error: `Please wait ${waitSec}s before requesting another code.`, success: false });
-        }
+        // Note: we intentionally allow resend for verified accounts too —
+        // they may be mid-login and waiting on a fresh 2FA code.
+        // No cooldown — user can request a fresh code anytime.
 
         const otp = generateOTP();
         user.otpCode = otp;
@@ -371,34 +361,21 @@ app.post('/api/auth/login', [
             });
         }
 
-        if (!user.isVerified) {
-            // Resend an OTP automatically so the user can verify right away
-            const otp = generateOTP();
-            user.otpCode = otp;
-            user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-            user.otpAttempts = 0;
-            user.otpLastSentAt = new Date();
-            await user.save();
-            await sendOTPEmail(user.email, user.name, otp);
+        // ---- OTP required to complete every login (this also covers a ----
+        // ---- brand-new account whose email was never verified at signup) ----
+        const otp = generateOTP();
+        user.otpCode = otp;
+        user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+        user.otpAttempts = 0;
+        user.otpLastSentAt = new Date();
+        await user.save();
+        await sendOTPEmail(user.email, user.name, otp);
 
-            return res.status(403).json({
-                error: 'Please verify your email before logging in. We sent you a new code.',
-                success: false,
-                requiresVerification: true,
-                email: user.email
-            });
-        }
-        
-        const token = user.generateToken();
-        res.json({
-            success: true,
-            token,
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                email: user.email, 
-                phone: user.phone
-            }
+        return res.status(403).json({
+            error: 'Please enter the verification code we just emailed you to complete login.',
+            success: false,
+            requiresVerification: true,
+            email: user.email
         });
     } catch (error) {
         console.error('Login error:', error);
