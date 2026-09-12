@@ -38,6 +38,73 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
     }
 }
 
+// ==================== PUSH NOTIFICATIONS ====================
+// Lets the phone/browser show a real notification (even outside the tab)
+// for OTP codes, instead of relying only on the email arriving.
+let swRegistration = null;
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return null;
+    try {
+        swRegistration = await navigator.serviceWorker.register('/service-worker.js');
+        return swRegistration;
+    } catch (error) {
+        console.warn('Service worker registration failed:', error.message);
+        return null;
+    }
+}
+
+// Prompts for notification permission (if not already answered) and
+// registers this device to receive push notifications for the given
+// email. Safe to call multiple times — it's a no-op once already
+// subscribed, and it never blocks or throws into the caller.
+async function subscribeToPushNotifications(email) {
+    if (!email) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        // Browser/OS doesn't support Web Push here (e.g. Safari on iOS
+        // only supports this once the site is added to the Home Screen).
+        return;
+    }
+
+    try {
+        if (Notification.permission === 'denied') return;
+
+        const registration = swRegistration || await registerServiceWorker();
+        if (!registration) return;
+
+        if (Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') return;
+        }
+        if (Notification.permission !== 'granted') return;
+
+        const keyResponse = await apiRequest('/push/vapid-public-key', 'GET');
+        if (!keyResponse.publicKey) return; // server-side push not configured yet
+
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey)
+            });
+        }
+
+        await apiRequest('/push/subscribe', 'POST', { email, subscription: subscription.toJSON() });
+    } catch (error) {
+        // Never let a push-subscription failure disrupt signup/login.
+        console.warn('Push subscription failed (non-blocking):', error.message);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', registerServiceWorker);
+
 // ==================== TRACKED SHIPMENTS HISTORY FUNCTIONS ====================
 function saveTrackedShipment(trackingNumber, shipmentData) {
     const existingIndex = trackedShipmentsHistory.findIndex(s => s.trackingNumber === trackingNumber);
@@ -333,6 +400,10 @@ function showOtpScreen(email) {
     digits[0]?.focus();
 
     startOtpCountdown(10 * 60); // 10 minutes, matches server-side expiry
+
+    // Ask for notification permission right when it's actually useful —
+    // the moment the user is waiting on a code.
+    subscribeToPushNotifications(email);
 }
 
 function startOtpCountdown(seconds) {

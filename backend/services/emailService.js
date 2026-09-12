@@ -34,7 +34,19 @@ function initTransporter() {
         auth: {
             user: EMAIL_USER,
             pass: EMAIL_PASS
-        }
+        },
+        // ---- Connection pooling: keep a small pool of SMTP connections
+        // open instead of doing a fresh TCP+TLS+auth handshake for every
+        // OTP. This is the single biggest lever on how fast an email
+        // actually leaves our server. ----
+        pool: true,
+        maxConnections: 3,
+        maxMessages: 100,
+        // ---- Fail fast instead of hanging: if the mail server is slow
+        // or unreachable, surface that in a few seconds, not minutes. ----
+        connectionTimeout: 8000,   // time to establish the connection
+        greetingTimeout: 8000,     // time to receive the SMTP greeting
+        socketTimeout: 10000       // time for the whole send to complete
     });
 
     emailEnabled = true;

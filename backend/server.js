@@ -12,6 +12,7 @@ const https = require('https');
 const querystring = require('querystring');
 const { sendOTPEmail, generateOTP } = require('./services/emailService');
 const { syncShipmentToAPX } = require('./services/apxSyncService');
+const { sendPushToSubscriptions } = require('./services/pushService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -102,6 +103,46 @@ UserSchema.methods.generateToken = function() {
 };
 
 const User = mongoose.model('User', UserSchema);
+
+// ---- Push notification subscriptions ----
+// Keyed by email rather than userId because a device needs to subscribe
+// BEFORE the account is verified (right on the OTP screen, pre-login).
+const PushSubscriptionSchema = new mongoose.Schema({
+    email: { type: String, required: true, lowercase: true, trim: true, index: true },
+    subscription: { type: Object, required: true }, // raw PushSubscription JSON from the browser
+    createdAt: { type: Date, default: Date.now }
+});
+PushSubscriptionSchema.index({ email: 1, 'subscription.endpoint': 1 }, { unique: true });
+const PushSubscription = mongoose.model('PushSubscription', PushSubscriptionSchema);
+
+/**
+ * Sends an OTP push notification to every device subscribed for this
+ * email, and cleans up any subscriptions the browser reports as dead.
+ * Never throws — this always runs fire-and-forget alongside the OTP email.
+ */
+async function pushOTPNotification(email, otp) {
+    try {
+        const normalizedEmail = email.toLowerCase().trim();
+        const subs = await PushSubscription.find({ email: normalizedEmail });
+        if (!subs.length) return;
+
+        const { deadEndpoints } = await sendPushToSubscriptions(subs, {
+            title: 'ROUTE3 TRAX',
+            body: `Your verification code is ${otp}`,
+            tag: 'trax-otp',
+            data: { url: '/' }
+        });
+
+        if (deadEndpoints?.length) {
+            await PushSubscription.deleteMany({
+                email: normalizedEmail,
+                'subscription.endpoint': { $in: deadEndpoints }
+            });
+        }
+    } catch (error) {
+        console.error('OTP push notification failed:', error.message);
+    }
+}
 
 const TransactionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -196,6 +237,40 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// ==================== PUSH NOTIFICATIONS ====================
+app.get('/api/push/vapid-public-key', (req, res) => {
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || null });
+});
+
+app.post('/api/push/subscribe', [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('subscription').notEmpty().withMessage('Subscription is required')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: errors.array()[0].msg, success: false });
+        }
+
+        const { email, subscription } = req.body;
+        if (!subscription.endpoint) {
+            return res.status(400).json({ error: 'Invalid subscription', success: false });
+        }
+        const normalizedEmail = email.toLowerCase().trim();
+
+        await PushSubscription.findOneAndUpdate(
+            { email: normalizedEmail, 'subscription.endpoint': subscription.endpoint },
+            { email: normalizedEmail, subscription },
+            { upsert: true, new: true }
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Push subscribe error:', error);
+        res.status(500).json({ error: 'Server error', success: false });
+    }
+});
+
 // ==================== AUTH ROUTES ====================
 app.post('/api/auth/signup', [
     body('name').notEmpty().withMessage('Name is required').trim(),
@@ -232,15 +307,19 @@ app.post('/api/auth/signup', [
         });
         await user.save();
 
-        await sendOTPEmail(user.email, user.name, otp);
-
         // No auth token yet — the account isn't usable until the OTP is verified.
+        // Respond right away; don't make the client wait on the SMTP round trip.
         res.json({
             success: true,
             requiresVerification: true,
             email: user.email,
             message: 'Account created! We sent a 6-digit verification code to your email.'
         });
+
+        sendOTPEmail(user.email, user.name, otp).catch(err =>
+            console.error('OTP email (signup) failed to send:', err.message)
+        );
+        pushOTPNotification(user.email, otp);
     } catch (error) {
         console.error('Signup error:', error);
         res.status(500).json({ 
@@ -329,9 +408,12 @@ app.post('/api/auth/resend-otp', [
         user.otpLastSentAt = new Date();
         await user.save();
 
-        await sendOTPEmail(user.email, user.name, otp);
-
         res.json({ success: true, message: 'A new verification code has been sent to your email.' });
+
+        sendOTPEmail(user.email, user.name, otp).catch(err =>
+            console.error('OTP email (resend) failed to send:', err.message)
+        );
+        pushOTPNotification(user.email, otp);
     } catch (error) {
         console.error('Resend OTP error:', error);
         res.status(500).json({ error: 'Server error', success: false });
@@ -369,14 +451,19 @@ app.post('/api/auth/login', [
         user.otpAttempts = 0;
         user.otpLastSentAt = new Date();
         await user.save();
-        await sendOTPEmail(user.email, user.name, otp);
 
-        return res.status(403).json({
+        res.status(403).json({
             error: 'Please enter the verification code we just emailed you to complete login.',
             success: false,
             requiresVerification: true,
             email: user.email
         });
+
+        sendOTPEmail(user.email, user.name, otp).catch(err =>
+            console.error('OTP email (login) failed to send:', err.message)
+        );
+        pushOTPNotification(user.email, otp);
+        return;
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ 
@@ -721,7 +808,74 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
     }
 
     // ============================================================
-    // STEP 2: Try SmartCargo API for REAL DATA
+    // STEP 2: RapidEx (RPX-prefixed numbers only — separate carrier)
+    // ============================================================
+    if (/^rpx/i.test(cleanNumber)) {
+        try {
+            console.log(`📡 Attempting RapidEx tracker for: ${cleanNumber}`);
+            const r = await fetchFromRapidEx(cleanNumber);
+
+            if (r && r.success && r.history && r.history.length > 0) {
+                // RapidEx's page lists newest-first; flip to chronological
+                // order to match how the rest of this app builds timelines.
+                const timeline = [...r.history].reverse().map(h => ({
+                    date: h.date,
+                    time: '00:00:00',
+                    location: h.location || 'Processing',
+                    status: h.status || 'In Transit'
+                }));
+                const latest = timeline[timeline.length - 1];
+
+                const response = {
+                    trackingNumber: cleanNumber,
+                    customerCNumber: null,
+                    displayNumber: cleanNumber,
+                    searchedWith: 'RapidEx Tracking',
+                    latestStatus: latest?.status || 'In Transit',
+                    latestLocation: latest?.location || 'Processing',
+                    lastUpdate: latest?.date || new Date().toISOString(),
+                    origin: 'Pakistan',
+                    destination: r.destination || 'International',
+                    originCode: 'N/A',
+                    destinationCode: r.destination || 'N/A',
+                    timeline: timeline,
+                    shipmentDetails: {
+                        service: 'Standard',
+                        weight: r.weight || 'N/A',
+                        weightUnit: 'kg',
+                        pieces: r.quantity || '1',
+                        date: timeline[0]?.date || '',
+                        mode: 'N/A',
+                        product: 'N/A',
+                        referenceNo: r.forwardingNo || cleanNumber
+                    },
+                    shipper: { name: 'N/A', city: 'N/A', country: 'N/A', address: 'N/A', phone: 'N/A' },
+                    consignee: { name: 'N/A', city: 'N/A', country: r.destination || 'N/A', zip: 'N/A', address: 'N/A', phone: 'N/A' },
+                    bookingDate: timeline[0]?.date || '',
+                    deliveryDate: r.milestones?.handed_over || 'N/A',
+                    pieces: r.quantity || '1',
+                    totalWeight: r.weight || 'N/A',
+                    source: 'RapidEx Tracking - Live Data',
+                    isVerified: true,
+                    isRealData: true,
+                    isGlobal: true,
+                    isUserCreated: false,
+                    carrier: r.carrier || 'RapidEx',
+                    forwardingNo: r.forwardingNo || '',
+                    forwardingUrl: r.forwardingUrl || ''
+                };
+
+                console.log(`✅ Returning REAL RapidEx data for: ${cleanNumber}`);
+                console.log(`📦 ${response.timeline.length} events found`);
+                return res.json(response);
+            }
+            console.log(`⚠️ RapidEx returned no data for: ${cleanNumber}`);
+        } catch (error) {
+            console.log(`❌ RapidEx tracker error: ${error.message}`);
+        }
+    } else {
+    // ============================================================
+    // STEP 2B: Try SmartCargo API for REAL DATA
     // ============================================================
     try {
         console.log(`📡 Attempting SmartCargo API for: ${cleanNumber}`);
@@ -802,6 +956,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
         
     } catch (error) {
         console.log(`❌ SmartCargo API error: ${error.message}`);
+    }
     }
 
     // ============================================================
@@ -1271,7 +1426,20 @@ function rebrandText(text) {
     });
 }
 
+// Short-lived cache for SmartCargo lookups. This is a real, external,
+// third-party server — its response time is outside our control and
+// can legitimately take a couple of seconds. Caching doesn't speed up
+// the FIRST lookup of a number, but it makes every repeat lookup within
+// this window instant instead of re-hitting their server.
+const smartCargoResultCache = new Map();
+const SMARTCARGO_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 async function fetchFromSmartCargo(trackingNumber) {
+    const cached = smartCargoResultCache.get(trackingNumber);
+    if (cached && Date.now() < cached.expiresAt) {
+        return cached.data;
+    }
+
     try {
         const { token, cookies } = await getSmartCargoToken();
         const postData = querystring.stringify({ '_token': token, 'refno': trackingNumber });
@@ -1309,6 +1477,10 @@ async function fetchFromSmartCargo(trackingNumber) {
                             return;
                         }
                         const jsonData = JSON.parse(responseData);
+                        smartCargoResultCache.set(trackingNumber, {
+                            data: jsonData,
+                            expiresAt: Date.now() + SMARTCARGO_CACHE_TTL_MS
+                        });
                         resolve(jsonData);
                     } catch (e) {
                         reject(new Error('Failed to parse response'));
@@ -1324,6 +1496,131 @@ async function fetchFromSmartCargo(trackingNumber) {
     } catch (error) {
         throw error;
     }
+}
+
+// ==================== RAPIDEX TRACKER ====================
+// Node port of the uploaded rapidex_tracker_5.py — scrapes
+// https://www.rapidexpress.pk/tracking?trackingId=<id>
+// Ported to Node (instead of shelling out to Python) so it runs the same
+// way everywhere this app is deployed, with no separate Python runtime
+// or pip packages required on the server.
+const RAPIDEX_DATE_PAT = /(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})/;
+
+function htmlToLines(html) {
+    const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, '\n')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#39;/gi, "'")
+        .replace(/&quot;/gi, '"');
+    return text.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+}
+
+function extractRapidExLabel(block, label) {
+    const re = new RegExp(`${label}\\s*\\n\\s*(.+)`, 'i');
+    const m = block.match(re);
+    return m ? m[1].trim() : '';
+}
+
+function fetchFromRapidEx(trackingNumber) {
+    return new Promise((resolve, reject) => {
+        const options = {
+            hostname: 'www.rapidexpress.pk',
+            path: `/tracking?trackingId=${encodeURIComponent(trackingNumber)}`,
+            method: 'GET',
+            timeout: 15000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let html = '';
+            res.on('data', chunk => html += chunk);
+            res.on('end', () => {
+                try {
+                    if (res.statusCode < 200 || res.statusCode >= 300) {
+                        reject(new Error(`RapidEx responded with status ${res.statusCode}`));
+                        return;
+                    }
+
+                    // ---- Forwarding carrier link ----
+                    const fwdMatch = html.match(/<a[^>]*href="([^"]*track[^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+                    const forwardingUrl = fwdMatch ? fwdMatch[1] : '';
+                    const forwardingNo = fwdMatch ? fwdMatch[2].replace(/<[^>]+>/g, '').trim() : '';
+
+                    const pageText = htmlToLines(html);
+
+                    // ---- Shipping Info block ----
+                    const infoMatch = pageText.match(/Shipping Info[\s\S]*?Delivery Status/i);
+                    const infoBlock = infoMatch ? infoMatch[0] : pageText;
+                    const info = {
+                        carrier: extractRapidExLabel(infoBlock, 'Carrier'),
+                        destination: extractRapidExLabel(infoBlock, 'Destination'),
+                        quantity: extractRapidExLabel(infoBlock, 'Quantity'),
+                        weight: extractRapidExLabel(infoBlock, 'Weight')
+                    };
+
+                    // ---- Delivery Status history: split the page text on
+                    // date markers, same heuristic as the Python version ----
+                    const statusIdx = pageText.search(/Delivery Status/i);
+                    const rawText = statusIdx >= 0 ? pageText.slice(statusIdx) : pageText;
+                    const chunks = rawText.split(RAPIDEX_DATE_PAT);
+
+                    const history = [];
+                    const seen = new Set();
+                    for (let i = 1; i < chunks.length - 1; i += 2) {
+                        const date = (chunks[i] || '').trim();
+                        const rest = (chunks[i + 1] || '').trim();
+                        const lines = rest.split('\n').map(l => l.trim()).filter(Boolean);
+                        let status = lines[0] || '';
+                        let location = lines[1] || '';
+                        if (RAPIDEX_DATE_PAT.test(status)) status = '';
+                        if (RAPIDEX_DATE_PAT.test(location)) location = '';
+                        const key = `${date}|${status}`;
+                        if (status && !seen.has(key)) {
+                            history.push({ date, status, location });
+                            seen.add(key);
+                        }
+                    }
+
+                    // ---- Milestones ----
+                    const milestones = {};
+                    ['Accepted', 'Departed', 'Arrived', 'Handed Over'].forEach(label => {
+                        const idx = pageText.search(new RegExp(`\\b${label}\\b`, 'i'));
+                        if (idx >= 0) {
+                            const nearby = pageText.slice(idx, idx + 200);
+                            const dateMatch = nearby.match(RAPIDEX_DATE_PAT);
+                            milestones[label.toLowerCase().replace(' ', '_')] = dateMatch ? dateMatch[0] : '✓';
+                        }
+                    });
+
+                    resolve({
+                        trackingNumber,
+                        success: true,
+                        carrier: info.carrier,
+                        destination: info.destination,
+                        quantity: info.quantity,
+                        weight: info.weight,
+                        forwardingNo,
+                        forwardingUrl,
+                        milestones,
+                        history
+                    });
+                } catch (e) {
+                    reject(new Error('Failed to parse RapidEx response: ' + e.message));
+                }
+            });
+        });
+
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('RapidEx request timeout')); });
+        req.end();
+    });
 }
 
 // ==================== REAL DATA DATABASE ====================
