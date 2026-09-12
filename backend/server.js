@@ -170,6 +170,7 @@ const Transaction = mongoose.model('Transaction', TransactionSchema);
 const StoredShipmentSchema = new mongoose.Schema({
     trackingNumber: { type: String, required: true, unique: true, trim: true },
     customerCNumber: { type: String, required: true, unique: true, trim: true },
+    rapidexId: { type: String, unique: true, sparse: true, trim: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     shipperName: { type: String, required: true },
     shipperAddress: { type: String, default: 'N/A' },
@@ -526,6 +527,18 @@ function generateCustomerCNumber() {
     return 'CN' + timestamp + random;
 }
 
+// ==================== FUNCTION TO GENERATE RAPIDEX-STYLE ID ====================
+// This is OUR OWN internal ID for the shipment (not from RapidEx's real
+// system) — it just uses their "RPX" naming convention so it's easy to
+// recognize. Searching it returns this shipment's own real, authentic
+// data straight from our database (same as searching the TRX or CN
+// number) — it is never sent to or looked up on rapidexpress.pk.
+function generateRapidexId() {
+    const timestamp = Date.now().toString().slice(-8);
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return 'RPX' + timestamp + random;
+}
+
 // ==================== UPDATED CREATE SHIPMENT - WITH C/N NUMBER ====================
 app.post('/api/auth/create-shipment', authenticate, [
     body('shipperName').notEmpty().withMessage('Shipper name is required'),
@@ -564,6 +577,9 @@ app.post('/api/auth/create-shipment', authenticate, [
         
         // Generate Customer C/N Number: CN + timestamp + random
         const customerCNumber = generateCustomerCNumber();
+
+        // Generate our own RapidEx-style ID: RPX + timestamp + random
+        const rapidexId = generateRapidexId();
         
         const cost = service === 'express' ? 25 : 15;
         
@@ -573,10 +589,11 @@ app.post('/api/auth/create-shipment', authenticate, [
         user.customerCNumbers.push(customerCNumber);
         await user.save();
 
-        // Save shipment to database with both numbers
+        // Save shipment to database with all three numbers
         const storedShipment = new StoredShipment({
             trackingNumber,
             customerCNumber,
+            rapidexId,
             userId: req.userId,
             shipperName,
             shipperAddress: shipperAddress || 'N/A',
@@ -663,6 +680,7 @@ app.post('/api/auth/create-shipment', authenticate, [
             success: true,
             trackingNumber,
             customerCNumber,
+            rapidexId,
             cost,
             apxSynced: storedShipment.apxSynced,
             apxSyncStatus: storedShipment.apxSyncStatus,
@@ -691,16 +709,20 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
     }
 
     // ============================================================
-    // STEP 1: Check if it's a user-created shipment (TRX or CN)
+    // STEP 1: Check if it's a user-created shipment (TRX, CN, or our
+    // own RPX id) — this always runs BEFORE the external RapidEx step,
+    // so an RPX id we generated ourselves returns OUR real shipment
+    // data and never gets sent to rapidexpress.pk.
     // ============================================================
-    if (cleanNumber.startsWith('TRX') || cleanNumber.startsWith('CN')) {
+    if (cleanNumber.startsWith('TRX') || cleanNumber.startsWith('CN') || cleanNumber.startsWith('RPX')) {
         console.log(`🔍 Checking user-created shipment: ${cleanNumber}`);
         try {
-            // Search by either trackingNumber OR customerCNumber
+            // Search by trackingNumber, customerCNumber, OR our own rapidexId
             const storedShipment = await StoredShipment.findOne({
                 $or: [
                     { trackingNumber: cleanNumber },
-                    { customerCNumber: cleanNumber }
+                    { customerCNumber: cleanNumber },
+                    { rapidexId: cleanNumber }
                 ]
             });
             
@@ -730,13 +752,17 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
 
                 // Determine which number was used for tracking
                 const isCN = cleanNumber.startsWith('CN');
-                const displayNumber = isCN ? storedShipment.customerCNumber : storedShipment.trackingNumber;
+                const isRapidex = cleanNumber.startsWith('RPX');
+                const displayNumber = isCN ? storedShipment.customerCNumber
+                    : isRapidex ? storedShipment.rapidexId
+                    : storedShipment.trackingNumber;
 
                 const response = {
                     trackingNumber: storedShipment.trackingNumber,
                     customerCNumber: storedShipment.customerCNumber,
+                    rapidexId: storedShipment.rapidexId,
                     displayNumber: displayNumber,
-                    searchedWith: isCN ? 'Customer C/N' : 'Tracking ID',
+                    searchedWith: isCN ? 'Customer C/N' : isRapidex ? 'RapidEx ID' : 'Tracking ID',
                     latestStatus: storedShipment.status || 'Created',
                     latestLocation: storedShipment.destination || 'Processing',
                     lastUpdate: storedShipment.lastUpdate || new Date().toISOString(),
@@ -798,7 +824,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 };
                 
                 console.log(`✅ Returning user-created shipment data for: ${cleanNumber}`);
-                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : 'Tracking ID'}`);
+                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : isRapidex ? 'RapidEx ID' : 'Tracking ID'}`);
                 return res.json(response);
             }
             console.log(`⚠️ User-created shipment not found in database: ${cleanNumber}`);
@@ -820,7 +846,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 // order to match how the rest of this app builds timelines.
                 const timeline = [...r.history].reverse().map(h => ({
                     date: h.date,
-                    time: '00:00:00',
+                    time: h.time || '',
                     location: h.location || 'Processing',
                     status: h.status || 'In Transit'
                 }));
@@ -1056,6 +1082,7 @@ app.get('/api/auth/user-shipments', authenticate, async (req, res) => {
         const formattedShipments = shipments.map(s => ({
             trackingNumber: s.trackingNumber,
             customerCNumber: s.customerCNumber,
+            rapidexId: s.rapidexId || null,
             shipperName: s.shipperName,
             consigneeName: s.consigneeName,
             description: s.description,
@@ -1078,6 +1105,45 @@ app.get('/api/auth/user-shipments', authenticate, async (req, res) => {
     } catch (error) {
         console.error('Get user shipments error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==================== DELETE A SHIPMENT (OWNER ONLY) ====================
+app.delete('/api/auth/shipment/:trackingNumber', authenticate, async (req, res) => {
+    try {
+        const trackingNumber = req.params.trackingNumber.trim();
+
+        // Only ever delete a shipment that belongs to the logged-in user —
+        // this scoping is what stops anyone from deleting someone else's
+        // shipment just by knowing its tracking number.
+        const shipment = await StoredShipment.findOne({ trackingNumber, userId: req.userId });
+
+        if (!shipment) {
+            return res.status(404).json({
+                error: 'Shipment not found or you do not have permission to delete it',
+                success: false
+            });
+        }
+
+        await StoredShipment.deleteOne({ _id: shipment._id });
+
+        // Best-effort cleanup of the lightweight reference lists on the
+        // user document — never blocks the delete if this part fails.
+        try {
+            await User.findByIdAndUpdate(req.userId, {
+                $pull: {
+                    shipments: shipment.trackingNumber,
+                    customerCNumbers: shipment.customerCNumber
+                }
+            });
+        } catch (cleanupErr) {
+            console.log('⚠️ User reference cleanup after delete failed (shipment still deleted):', cleanupErr.message);
+        }
+
+        res.json({ success: true, message: 'Shipment deleted successfully' });
+    } catch (error) {
+        console.error('Delete shipment error:', error);
+        res.status(500).json({ error: 'Server error', success: false });
     }
 });
 
@@ -1504,7 +1570,14 @@ async function fetchFromSmartCargo(trackingNumber) {
 // Ported to Node (instead of shelling out to Python) so it runs the same
 // way everywhere this app is deployed, with no separate Python runtime
 // or pip packages required on the server.
-const RAPIDEX_DATE_PAT = /(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})/;
+const RAPIDEX_DATE_PAT = /(\d{4}-\d{2}-\d{2}(?:[ T,]+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?)?|\d{2}-\d{2}-\d{4}(?:[ T,]+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?)?)/;
+// Splits a captured "date" token (which may or may not include a time)
+// into its date part and time part.
+function splitRapidExDateTime(token) {
+    const m = token.trim().match(/^(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})[ T,]*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?)?$/);
+    if (!m) return { date: token.trim(), time: '' };
+    return { date: m[1], time: (m[2] || '').trim() };
+}
 
 function htmlToLines(html) {
     const text = html
@@ -1574,16 +1647,16 @@ function fetchFromRapidEx(trackingNumber) {
                     const history = [];
                     const seen = new Set();
                     for (let i = 1; i < chunks.length - 1; i += 2) {
-                        const date = (chunks[i] || '').trim();
+                        const { date, time } = splitRapidExDateTime(chunks[i] || '');
                         const rest = (chunks[i + 1] || '').trim();
                         const lines = rest.split('\n').map(l => l.trim()).filter(Boolean);
                         let status = lines[0] || '';
                         let location = lines[1] || '';
                         if (RAPIDEX_DATE_PAT.test(status)) status = '';
                         if (RAPIDEX_DATE_PAT.test(location)) location = '';
-                        const key = `${date}|${status}`;
+                        const key = `${date}|${time}|${status}`;
                         if (status && !seen.has(key)) {
-                            history.push({ date, status, location });
+                            history.push({ date, time, status, location });
                             seen.add(key);
                         }
                     }

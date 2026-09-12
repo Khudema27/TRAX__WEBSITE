@@ -728,7 +728,7 @@ function displayTrackingInfo(shipment, resultDiv) {
                 </td>
                 <td>
                     <i class="far fa-calendar-alt"></i>
-                    ${escapeHtml(event.date)} ${escapeHtml(event.time)}
+                    ${escapeHtml(event.date)}${event.time ? ' ' + escapeHtml(event.time) : ''}
                 </td>
             </tr>
         `;
@@ -751,6 +751,15 @@ function displayTrackingInfo(shipment, resultDiv) {
                 <span style="font-weight: 600; color: #064e3b;">Customer C/N:</span>
                 <span style="background: #f1f5f9; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #1e293b;">${escapeHtml(shipment.customerCNumber)}</span>
                 <span style="font-size: 11px; color: #94a3b8;">(Give this to customer for tracking)</span>
+            </div>
+        `;
+    }
+    if (shipment.rapidexId) {
+        cnDisplay += `
+            <div style="margin-top: 8px; font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-weight: 600; color: #064e3b;">RapidEx ID:</span>
+                <span style="background: #ecfdf5; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #059669;">${escapeHtml(shipment.rapidexId)}</span>
+                <span style="font-size: 11px; color: #94a3b8;">(Also trackable with this number)</span>
             </div>
         `;
     }
@@ -1399,6 +1408,13 @@ function generateShipmentHTML(shipmentData) {
                 </div>
                 ` : ''}
 
+                ${shipmentData.rapidexId ? `
+                <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
+                    <div class="cn-num" style="color:#059669;">${shipmentData.rapidexId}</div>
+                    <div class="caption">RapidEx ID · Also trackable with this number</div>
+                </div>
+                ` : ''}
+
                 ${shipmentData.apxSynced && shipmentData.apxTrackingNumber ? `
                 <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
                     <div class="cn-num" style="color:#047857;">${shipmentData.apxTrackingNumber}</div>
@@ -1852,6 +1868,7 @@ async function loadShipmentsPage() {
                 <tr>
                     <td data-label="Tracking ID"><strong>${escapeHtml(s.trackingNumber)}</strong></td>
                     <td data-label="Customer C/N"><span class="tag-soft tag-blue">${escapeHtml(s.customerCNumber || 'N/A')}</span></td>
+                    <td data-label="RapidEx ID"><span class="tag-soft tag-green">${escapeHtml(s.rapidexId || 'N/A')}</span></td>
                     <td data-label="Status"><span class="status-badge">${escapeHtml(s.status || 'Created')}</span></td>
                     <td data-label="Shipper">${escapeHtml(s.shipperName || 'N/A')}</td>
                     <td data-label="Consignee">${escapeHtml(s.consigneeName || 'N/A')}</td>
@@ -1867,6 +1884,9 @@ async function loadShipmentsPage() {
                         </button>
                         <button class="btn-icon-sm pdf" onclick="printShipmentFromHistory('${escapeHtml(s.trackingNumber)}')" title="Download PDF">
                             <i class="fas fa-file-pdf"></i>
+                        </button>
+                        <button class="btn-icon-sm" style="color:#dc2626;" onclick="deleteMyShipment('${escapeHtml(s.trackingNumber)}')" title="Delete">
+                            <i class="fas fa-trash-can"></i>
                         </button>
                     </td>
                 </tr>
@@ -1886,7 +1906,7 @@ async function loadShipmentsPage() {
             <div class="table-wrap" style="overflow-x: auto;">
                 <table class="shipments-table">
                     <thead>
-                        <tr><th>Tracking ID</th><th>Customer C/N</th><th>Status</th><th>Shipper</th><th>Consignee</th><th>Route</th><th>Date</th><th>Actions</th></tr>
+                        <tr><th>Tracking ID</th><th>Customer C/N</th><th>RapidEx ID</th><th>Status</th><th>Shipper</th><th>Consignee</th><th>Route</th><th>Date</th><th>Actions</th></tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
@@ -1908,6 +1928,22 @@ function quickTrackFromMyShipments(trackingNumber) {
             trackShipment();
         }
     }, 100);
+}
+
+async function deleteMyShipment(trackingNumber) {
+    const confirmed = confirm(`Delete shipment ${trackingNumber}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    showLoading(true);
+    try {
+        await apiRequest(`/auth/shipment/${encodeURIComponent(trackingNumber)}`, 'DELETE');
+        showToast('Shipment deleted', 'success');
+        await loadShipmentsPage();
+    } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
 // ==================== CONTACT PAGE ====================
@@ -1993,36 +2029,43 @@ async function createShipment(event) {
         } else if (result.apxSyncStatus === 'verification_failed') {
             apxToastLine = '\n⚠️ APX number not found — please double-check it';
         }
-        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}\nCost: $${result.cost}${apxToastLine}`, 'success');
+        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}${result.rapidexId ? `\nRapidEx ID: ${result.rapidexId}` : ''}\nCost: $${result.cost}${apxToastLine}`, 'success');
         closeShipmentModal();
-        
-        // Show print option modal with both numbers
-        showPrintOptionModal({
-            trackingNumber: result.trackingNumber,
-            customerCNumber: result.customerCNumber,
-            cost: result.cost,
-            shipperName,
-            shipperAddress: shipperAddress || 'N/A',
-            shipperPhone: shipperCell || 'N/A',
-            consigneeName,
-            consigneeAddress: consigneeAddress || 'N/A',
-            consigneePhone: consigneeCell || 'N/A',
-            description,
-            weight: weight || '1',
-            pieces: quantity || '1',
-            service: 'Standard',
-            origin: originCountry,
-            destination: destinationCountry,
-            createdDate: new Date().toISOString(),
-            createdBy: currentUser?.email || 'N/A',
-            reference: 'SHIP-' + Date.now().toString().slice(-6),
-            status: 'Created',
-            apxSynced: result.apxSynced || false,
-            apxSyncStatus: result.apxSyncStatus || 'not_configured',
-            apxTrackingNumber: result.apxTrackingNumber || null
-        });
-        
-        loadDashboardContent();
+
+        // Refresh the list FIRST and unconditionally — a problem opening
+        // the print modal below should never leave the shipments list stale.
+        await loadDashboardContent();
+
+        // Show print option modal with all numbers
+        try {
+            showPrintOptionModal({
+                trackingNumber: result.trackingNumber,
+                customerCNumber: result.customerCNumber,
+                rapidexId: result.rapidexId,
+                cost: result.cost,
+                shipperName,
+                shipperAddress: shipperAddress || 'N/A',
+                shipperPhone: shipperCell || 'N/A',
+                consigneeName,
+                consigneeAddress: consigneeAddress || 'N/A',
+                consigneePhone: consigneeCell || 'N/A',
+                description,
+                weight: weight || '1',
+                pieces: quantity || '1',
+                service: 'Standard',
+                origin: originCountry,
+                destination: destinationCountry,
+                createdDate: new Date().toISOString(),
+                createdBy: currentUser?.email || 'N/A',
+                reference: 'SHIP-' + Date.now().toString().slice(-6),
+                status: 'Created',
+                apxSynced: result.apxSynced || false,
+                apxSyncStatus: result.apxSyncStatus || 'not_configured',
+                apxTrackingNumber: result.apxTrackingNumber || null
+            });
+        } catch (modalError) {
+            console.warn('Print option modal failed to open (shipment was still created fine):', modalError.message);
+        }
     } catch (error) {
         showToast('Error: ' + error.message, 'error');
     } finally {
@@ -2045,6 +2088,10 @@ function showPrintOptionModal(shipmentData) {
                         <div style="font-size: 28px; font-weight: 800; color: #064e3b; letter-spacing: 2px; margin: 4px 0;">${shipmentData.trackingNumber}</div>
                         <div style="font-size: 14px; color: #64748b; margin-top: 8px;">Customer C/N</div>
                         <div style="font-size: 24px; font-weight: 700; color: #2563eb; letter-spacing: 2px; margin: 4px 0;">${shipmentData.customerCNumber}</div>
+                        ${shipmentData.rapidexId ? `
+                        <div style="font-size: 14px; color: #64748b; margin-top: 8px;">RapidEx ID</div>
+                        <div style="font-size: 22px; font-weight: 700; color: #059669; letter-spacing: 2px; margin: 4px 0;">${shipmentData.rapidexId}</div>
+                        ` : ''}
                         <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 12px;">$${shipmentData.cost.toFixed(2)}</div>
                         <div style="font-size: 13px; color: #64748b;">Shipping Cost</div>
                         <div class="apx-sync-badge ${shipmentData.apxSynced ? 'synced' : 'pending'}" style="margin-top: 14px;">

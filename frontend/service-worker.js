@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trax-v3';
+const CACHE_NAME = 'trax-v4';
 const SHELL_ASSETS = [
     '/',
     '/index.html',
@@ -27,6 +27,20 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
+    const url = new URL(event.request.url);
+
+    // NEVER cache API calls — shipments, tracking, auth, push, etc. must
+    // always be live data straight from the server. This is exactly what
+    // was making newly created shipments (and other fresh data) look
+    // "missing" on the web: the service worker was serving a stale
+    // cached copy of the API response instead of re-fetching it.
+    if (url.pathname.startsWith('/api/')) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
+    // Static assets (HTML/CSS/JS/images/fonts): cache-first, for speed
+    // and offline support.
     event.respondWith(
         caches.match(event.request).then(cached => {
             if (cached) return cached;
