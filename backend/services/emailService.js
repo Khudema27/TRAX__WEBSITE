@@ -35,6 +35,10 @@ function initTransporter() {
             user: EMAIL_USER,
             pass: EMAIL_PASS
         },
+        // ---- Force IPv4: some hosts (e.g. Render's free tier) can't
+        // reach Gmail's SMTP over IPv6, which fails every send with
+        // ENETUNREACH even though credentials/network are otherwise fine. ----
+        family: 4,
         // ---- Connection pooling: keep a small pool of SMTP connections
         // open instead of doing a fresh TCP+TLS+auth handshake for every
         // OTP. This is the single biggest lever on how fast an email

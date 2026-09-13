@@ -54,6 +54,25 @@ async function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return null;
     try {
         swRegistration = await navigator.serviceWorker.register('/service-worker.js');
+
+        // When a NEW service worker takes control (i.e. we just shipped an
+        // update), reload once automatically so the page always ends up
+        // running the latest code — no manual hard-refresh needed.
+        if (!navigator.serviceWorker._traxReloadListenerAdded) {
+            navigator.serviceWorker._traxReloadListenerAdded = true;
+            let hasReloaded = sessionStorage.getItem('traxSwReloaded') === '1';
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (hasReloaded) return;
+                hasReloaded = true;
+                sessionStorage.setItem('traxSwReloaded', '1');
+                window.location.reload();
+            });
+        }
+
+        // Ask the browser to check for a new service-worker.js right away
+        // (browsers normally only check occasionally on their own).
+        swRegistration.update().catch(() => {});
+
         return swRegistration;
     } catch (error) {
         console.warn('Service worker registration failed:', error.message);

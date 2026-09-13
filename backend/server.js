@@ -15,6 +15,12 @@ const { syncShipmentToAPX } = require('./services/apxSyncService');
 const { sendPushToSubscriptions } = require('./services/pushService');
 
 const app = express();
+
+// Render (and most hosting platforms) put the app behind a reverse proxy,
+// which sets the X-Forwarded-For header. Without this, Express doesn't
+// trust that header, so req.ip and express-rate-limit can't correctly
+// tell users apart by IP — they'd all appear to share the proxy's IP.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // ==================== ENVIRONMENT ====================

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trax-v4';
+const CACHE_NAME = 'trax-v5';
 const SHELL_ASSETS = [
     '/',
     '/index.html',
@@ -8,6 +8,11 @@ const SHELL_ASSETS = [
     'https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css'
 ];
+
+// Assets that genuinely don't change often — safe to serve straight from
+// cache for speed. Everything else (HTML/JS/CSS) is network-first below,
+// so code updates show up on a normal visit, not just in Incognito.
+const CACHE_FIRST_PATTERNS = [/^https:\/\/fonts\.googleapis\.com\//, /^https:\/\/cdnjs\.cloudflare\.com\//];
 
 self.addEventListener('install', event => {
     event.waitUntil(
@@ -30,30 +35,40 @@ self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
     // NEVER cache API calls — shipments, tracking, auth, push, etc. must
-    // always be live data straight from the server. This is exactly what
-    // was making newly created shipments (and other fresh data) look
-    // "missing" on the web: the service worker was serving a stale
-    // cached copy of the API response instead of re-fetching it.
+    // always be live data straight from the server.
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(fetch(event.request));
         return;
     }
 
-    // Static assets (HTML/CSS/JS/images/fonts): cache-first, for speed
-    // and offline support.
-    event.respondWith(
-        caches.match(event.request).then(cached => {
-            if (cached) return cached;
-            return fetch(event.request).then(response => {
-                if (event.request.method === 'GET' && response.status === 200) {
+    // Fonts/icon CDN assets: cache-first (they rarely change, and this
+    // keeps things fast).
+    if (CACHE_FIRST_PATTERNS.some(p => p.test(event.request.url))) {
+        event.respondWith(
+            caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+                if (response.status === 200) {
                     const clone = response.clone();
                     caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
                 }
                 return response;
-            });
-        }).catch(() => {
-            return caches.match('/');
-        })
+            }))
+        );
+        return;
+    }
+
+    // Everything else — HTML/CSS/JS (our own code): network-first. Always
+    // try to get the latest version from the server; only fall back to
+    // the cached copy if the network is unavailable (offline support).
+    // This is what makes code updates show up on a normal visit instead
+    // of only in Incognito.
+    event.respondWith(
+        fetch(event.request).then(response => {
+            if (event.request.method === 'GET' && response.status === 200) {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            }
+            return response;
+        }).catch(() => caches.match(event.request).then(cached => cached || caches.match('/')))
     );
 });
 
