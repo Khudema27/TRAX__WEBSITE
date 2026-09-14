@@ -281,7 +281,7 @@ app.post('/api/push/subscribe', [
 // ==================== AUTH ROUTES ====================
 app.post('/api/auth/signup', [
     body('name').notEmpty().withMessage('Name is required').trim(),
-    body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+    body('email').isEmail().withMessage('Valid email is required'),
     body('phone').notEmpty().withMessage('Phone number is required').trim(),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
 ], async (req, res) => {
@@ -323,9 +323,10 @@ app.post('/api/auth/signup', [
             message: 'Account created! We sent a 6-digit verification code to your email.'
         });
 
-        sendOTPEmail(user.email, user.name, otp).catch(err =>
-            console.error('OTP email (signup) failed to send:', err.message)
-        );
+        console.log(`📧 Sending signup OTP to: ${user.email}`);
+        sendOTPEmail(user.email, user.name, otp)
+            .then(result => console.log('   → OTP email result (signup):', result))
+            .catch(err => console.error('OTP email (signup) failed to send:', err.message));
         pushOTPNotification(user.email, otp);
     } catch (error) {
         console.error('Signup error:', error);
