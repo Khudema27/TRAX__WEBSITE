@@ -1963,20 +1963,23 @@ function quickTrackFromMyShipments(trackingNumber) {
     }, 100);
 }
 
-async function deleteMyShipment(trackingNumber) {
-    const confirmed = confirm(`Delete shipment ${trackingNumber}? This cannot be undone.`);
-    if (!confirmed) return;
-
-    showLoading(true);
-    try {
-        await apiRequest(`/auth/shipment/${encodeURIComponent(trackingNumber)}`, 'DELETE');
-        showToast('Shipment deleted', 'success');
-        await loadShipmentsPage();
-    } catch (error) {
-        showToast('Error: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-    }
+function deleteMyShipment(trackingNumber) {
+    showConfirm(
+        `Delete shipment ${trackingNumber}? This cannot be undone.`,
+        async () => {
+            showLoading(true);
+            try {
+                await apiRequest(`/auth/shipment/${encodeURIComponent(trackingNumber)}`, 'DELETE');
+                showToast('Shipment deleted', 'success');
+                await loadShipmentsPage();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        },
+        'Delete shipment?'
+    );
 }
 
 // ==================== CONTACT PAGE ====================
