@@ -708,6 +708,16 @@ function loadTrackPage() {
     `;
 }
 
+// Safety net: never show upstream carrier names on the tracking page,
+// even if an old cached response still contains them.
+function brandSafe(text) {
+    if (!text) return text;
+    return String(text).replace(
+        /(?:apx|smart[\s-]?cargo|rapid[\s-]?ex(?:press)?|route[\s-]?3)(?![\w-]*\.[a-z])((?:\s+(?:logistics|facility)\b)+)?/gi,
+        (m, suffix) => suffix ? 'ROUTE3 Logistics' : 'ROUTE3'
+    );
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, function(m) {
@@ -752,12 +762,12 @@ function displayTrackingInfo(shipment, resultDiv) {
                     <span class="timeline-dot ${dotClass}"></span>
                 </td>
                 <td>
-                    <strong>${escapeHtml(event.status)}</strong>
+                    <strong>${escapeHtml(brandSafe(event.status))}</strong>
                     ${badgeHtml}
                 </td>
                 <td>
                     <i class="fas fa-map-marker-alt"></i>
-                    ${escapeHtml(event.location)}
+                    ${escapeHtml(brandSafe(event.location))}
                 </td>
                 <td>
                     <i class="far fa-calendar-alt"></i>
@@ -802,7 +812,7 @@ function displayTrackingInfo(shipment, resultDiv) {
     if (shipment.searchedWith) {
         searchInfo = `
             <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">
-                <i class="fas fa-info-circle"></i> Searched with: ${escapeHtml(shipment.searchedWith)}
+                <i class="fas fa-info-circle"></i> Searched with: ${escapeHtml(brandSafe(shipment.searchedWith))}
             </div>
         `;
     }

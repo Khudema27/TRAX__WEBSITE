@@ -888,8 +888,8 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 const timeline = [...r.history].reverse().map(h => ({
                     date: h.date,
                     time: h.time || '',
-                    location: rebrandRapidex(h.location) || 'Processing',
-                    status: rebrandRapidex(h.status) || 'In Transit'
+                    location: rebrandText(h.location) || 'Processing',
+                    status: rebrandText(h.status) || 'In Transit'
                 }));
                 const latest = timeline[timeline.length - 1];
 
@@ -914,7 +914,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                         date: timeline[0]?.date || '',
                         mode: 'N/A',
                         product: 'N/A',
-                        referenceNo: r.forwardingNo || cleanNumber
+                        referenceNo: cleanNumber
                     },
                     shipper: { name: 'N/A', city: 'N/A', country: 'N/A', address: 'N/A', phone: 'N/A' },
                     consignee: { name: 'N/A', city: 'N/A', country: r.destination || 'N/A', zip: 'N/A', address: 'N/A', phone: 'N/A' },
@@ -927,9 +927,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     isRealData: true,
                     isGlobal: true,
                     isUserCreated: false,
-                    carrier: rebrandRapidex(r.carrier) || 'ROUTE3',
-                    forwardingNo: r.forwardingNo || '',
-                    forwardingUrl: r.forwardingUrl || ''
+                    carrier: 'ROUTE3'
                 };
 
                 console.log(`✅ Returning REAL RapidEx data for: ${cleanNumber}`);
@@ -968,7 +966,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     trackingNumber: d.trackingNo || cleanNumber,
                     customerCNumber: null,
                     displayNumber: d.trackingNo || cleanNumber,
-                    searchedWith: 'SmartCargo Tracking',
+                    searchedWith: 'ROUTE3 Tracking',
                     latestStatus: latest?.status || 'In Transit',
                     latestLocation: latest?.location || 'Processing',
                     lastUpdate: latest ? `${latest.date} ${latest.time}` : new Date().toISOString(),
@@ -1006,7 +1004,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     deliveryDate: d.expectedDeliveryDate || 'N/A',
                     pieces: d.pkgs || '1',
                     totalWeight: d.weight || 'N/A',
-                    source: 'SmartCargo ROUTE3 - Live Data',
+                    source: 'ROUTE3 - Live Data',
                     isVerified: true,
                     isRealData: true,
                     isGlobal: true,
@@ -1524,21 +1522,17 @@ function getSmartCargoToken() {
     });
 }
 
+// Every upstream carrier name that must never reach the user. Add more
+// names here (e.g. |dhl|fedex) if any other carrier ever shows up.
+// The lookahead keeps hostnames like "rapidexpress.pk" / "smartcargo-apx.pk"
+// untouched so the scrapers keep working.
+// If the brand is followed by "logistics" and/or "facility" (any case, any
+// order), the whole phrase becomes just "ROUTE3 Logistics".
+const BRAND_SCRUB_REGEX = /(?:apx|smart[\s-]?cargo|rapid[\s-]?ex(?:press)?|route[\s-]?3)(?![\w-]*\.[a-z])((?:\s+(?:logistics|facility)\b)+)?/gi;
+
 function rebrandText(text) {
     if (!text) return text;
-    return String(text).replace(/apx/gi, (match) => {
-        if (match === match.toUpperCase()) return 'ROUTE3';
-        if (match[0] === match[0].toUpperCase()) return 'Route3';
-        return 'route3';
-    });
-}
-
-// Like rebrandText(), but always writes the brand as ROUTE3, for RapidEx / Rapid Express names that
-// appear inside text scraped from the upstream tracking page. The (?!\.)
-// lookahead keeps hostnames like "rapidexpress.pk" untouched.
-function rebrandRapidex(text) {
-    if (!text) return text;
-    return String(text).replace(/\brapid[\s-]?ex(?:press)?\b(?!\.)/gi, 'ROUTE3');
+    return String(text).replace(BRAND_SCRUB_REGEX, (m, suffix) => suffix ? 'ROUTE3 Logistics' : 'ROUTE3');
 }
 
 // Short-lived cache for SmartCargo lookups. This is a real, external,
@@ -1759,8 +1753,8 @@ const REAL_DATA_DATABASE = {
         destination: 'LONDON, UK',
         timeline: [
             { date: '2026-06-20', time: '19:25:00', location: 'ISLAMABAD - PAKISTAN', status: 'Shipment booked' },
-            { date: '2026-06-21', time: '08:00:00', location: 'ISLAMABAD', status: 'Shipment Picked Up By Route3 LOGISTICS' },
-            { date: '2026-06-21', time: '20:13:00', location: 'ISLAMABAD', status: 'Processed at Route3 LOGISTICS Facility' },
+            { date: '2026-06-21', time: '08:00:00', location: 'ISLAMABAD', status: 'Shipment Picked Up By ROUTE3 Logistics' },
+            { date: '2026-06-21', time: '20:13:00', location: 'ISLAMABAD', status: 'Processed at ROUTE3 Logistics' },
             { date: '2026-06-23', time: '15:00:00', location: 'ISLAMABAD', status: 'SHIPMENT MANIFESTED' },
             { date: '2026-06-24', time: '11:15:00', location: 'ISLAMABAD-PAK', status: 'SHIPMENT DEPARTED FROM ISLAMABAD' },
             { date: '2026-06-25', time: '05:00:00', location: 'LONDON-UK', status: 'SHIPMENT ARRIVED' },
@@ -1768,7 +1762,7 @@ const REAL_DATA_DATABASE = {
             { date: '2026-06-26', time: '15:25:00', location: 'LONDON-UK', status: 'SHIPMENT CLEARED FROM CUSTOM' }
         ],
         shipmentDetails: { service: 'International Express', weight: '3.5', pieces: '1', date: '2026-06-20' },
-        source: 'SmartCargo API - Real Data',
+        source: 'ROUTE3 - Real Data',
         isVerified: true,
         isRealData: true,
         isUserCreated: false
@@ -1792,7 +1786,7 @@ const REAL_DATA_DATABASE = {
             { date: '2026-06-28', time: '14:30:00', location: 'DUBAI, UAE', status: 'In Transit' }
         ],
         shipmentDetails: { service: 'Express', weight: '3.2', pieces: '1', date: '2026-06-20' },
-        source: 'SmartCargo API - Real Data',
+        source: 'ROUTE3 - Real Data',
         isVerified: true,
         isRealData: true,
         isUserCreated: false
@@ -1820,7 +1814,7 @@ const REAL_DATA_DATABASE = {
             { date: '2026-01-21', time: '16:19:00', location: 'ISLAMABAD, Pakistan', status: 'Delivered Successfully' }
         ],
         shipmentDetails: { service: 'Express', weight: '2.5', pieces: '1', date: '2026-01-12' },
-        source: 'SmartCargo API - Real Data',
+        source: 'ROUTE3 - Real Data',
         isVerified: true,
         isRealData: true,
         isUserCreated: false
@@ -1844,7 +1838,7 @@ const REAL_DATA_DATABASE = {
             { date: '2026-06-28', time: '10:30:00', location: 'FAISALABAD, Pakistan', status: 'Out for Delivery' }
         ],
         shipmentDetails: { service: 'Standard', weight: '1.8', pieces: '1', date: '2026-06-22' },
-        source: 'SmartCargo API - Real Data',
+        source: 'ROUTE3 - Real Data',
         isVerified: true,
         isRealData: true,
         isUserCreated: false
