@@ -803,7 +803,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     customerCNumber: storedShipment.customerCNumber,
                     rapidexId: storedShipment.rapidexId,
                     displayNumber: displayNumber,
-                    searchedWith: isCN ? 'Customer C/N' : isRapidex ? 'RapidEx ID' : 'Tracking ID',
+                    searchedWith: isCN ? 'Customer C/N' : isRapidex ? 'Route3 ID' : 'Tracking ID',
                     latestStatus: storedShipment.status || 'Created',
                     latestLocation: storedShipment.destination || 'Processing',
                     lastUpdate: storedShipment.lastUpdate || new Date().toISOString(),
@@ -865,7 +865,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 };
                 
                 console.log(`✅ Returning user-created shipment data for: ${cleanNumber}`);
-                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : isRapidex ? 'RapidEx ID' : 'Tracking ID'}`);
+                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : isRapidex ? 'Route3 ID' : 'Tracking ID'}`);
                 return res.json(response);
             }
             console.log(`⚠️ User-created shipment not found in database: ${cleanNumber}`);
@@ -888,8 +888,8 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 const timeline = [...r.history].reverse().map(h => ({
                     date: h.date,
                     time: h.time || '',
-                    location: h.location || 'Processing',
-                    status: h.status || 'In Transit'
+                    location: rebrandRapidex(h.location) || 'Processing',
+                    status: rebrandRapidex(h.status) || 'In Transit'
                 }));
                 const latest = timeline[timeline.length - 1];
 
@@ -897,7 +897,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     trackingNumber: cleanNumber,
                     customerCNumber: null,
                     displayNumber: cleanNumber,
-                    searchedWith: 'RapidEx Tracking',
+                    searchedWith: 'Route3 Tracking',
                     latestStatus: latest?.status || 'In Transit',
                     latestLocation: latest?.location || 'Processing',
                     lastUpdate: latest?.date || new Date().toISOString(),
@@ -922,12 +922,12 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     deliveryDate: r.milestones?.handed_over || 'N/A',
                     pieces: r.quantity || '1',
                     totalWeight: r.weight || 'N/A',
-                    source: 'RapidEx Tracking - Live Data',
+                    source: 'Route3 Tracking - Live Data',
                     isVerified: true,
                     isRealData: true,
                     isGlobal: true,
                     isUserCreated: false,
-                    carrier: r.carrier || 'RapidEx',
+                    carrier: rebrandRapidex(r.carrier) || 'Route3',
                     forwardingNo: r.forwardingNo || '',
                     forwardingUrl: r.forwardingUrl || ''
                 };
@@ -1527,6 +1527,18 @@ function getSmartCargoToken() {
 function rebrandText(text) {
     if (!text) return text;
     return String(text).replace(/apx/gi, (match) => {
+        if (match === match.toUpperCase()) return 'ROUTE3';
+        if (match[0] === match[0].toUpperCase()) return 'Route3';
+        return 'route3';
+    });
+}
+
+// Same idea as rebrandText(), but for RapidEx / Rapid Express names that
+// appear inside text scraped from the upstream tracking page. The (?!\.)
+// lookahead keeps hostnames like "rapidexpress.pk" untouched.
+function rebrandRapidex(text) {
+    if (!text) return text;
+    return String(text).replace(/\brapid[\s-]?ex(?:press)?\b(?!\.)/gi, (match) => {
         if (match === match.toUpperCase()) return 'ROUTE3';
         if (match[0] === match[0].toUpperCase()) return 'Route3';
         return 'route3';
