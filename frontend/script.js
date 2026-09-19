@@ -790,7 +790,7 @@ function displayTrackingInfo(shipment, resultDiv) {
     if (shipment.rapidexId) {
         cnDisplay += `
             <div style="margin-top: 8px; font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <span style="font-weight: 600; color: #064e3b;">Route3 ID:</span>
+                <span style="font-weight: 600; color: #064e3b;">ROUTE3 ID:</span>
                 <span style="background: #ecfdf5; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #059669;">${escapeHtml(shipment.rapidexId)}</span>
                 <span style="font-size: 11px; color: #94a3b8;">(Also trackable with this number)</span>
             </div>
@@ -1444,7 +1444,7 @@ function generateShipmentHTML(shipmentData) {
                 ${shipmentData.rapidexId ? `
                 <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
                     <div class="cn-num" style="color:#059669;">${shipmentData.rapidexId}</div>
-                    <div class="caption">Route3 ID · Also trackable with this number</div>
+                    <div class="caption">ROUTE3 ID · Also trackable with this number</div>
                 </div>
                 ` : ''}
 
@@ -1901,7 +1901,7 @@ async function loadShipmentsPage() {
                 <tr>
                     <td data-label="Tracking ID"><strong>${escapeHtml(s.trackingNumber)}</strong></td>
                     <td data-label="Customer C/N"><span class="tag-soft tag-blue">${escapeHtml(s.customerCNumber || 'N/A')}</span></td>
-                    <td data-label="Route3 ID"><span class="tag-soft tag-green">${escapeHtml(s.rapidexId || 'N/A')}</span></td>
+                    <td data-label="ROUTE3 ID"><span class="tag-soft tag-green">${escapeHtml(s.rapidexId || 'N/A')}</span></td>
                     <td data-label="Status"><span class="status-badge">${escapeHtml(s.status || 'Created')}</span></td>
                     <td data-label="Shipper">${escapeHtml(s.shipperName || 'N/A')}</td>
                     <td data-label="Consignee">${escapeHtml(s.consigneeName || 'N/A')}</td>
@@ -1939,7 +1939,7 @@ async function loadShipmentsPage() {
             <div class="table-wrap" style="overflow-x: auto;">
                 <table class="shipments-table">
                     <thead>
-                        <tr><th>Tracking ID</th><th>Customer C/N</th><th>Route3 ID</th><th>Status</th><th>Shipper</th><th>Consignee</th><th>Route</th><th>Date</th><th>Actions</th></tr>
+                        <tr><th>Tracking ID</th><th>Customer C/N</th><th>ROUTE3 ID</th><th>Status</th><th>Shipper</th><th>Consignee</th><th>Route</th><th>Date</th><th>Actions</th></tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
@@ -2069,7 +2069,7 @@ async function createShipment(event) {
         } else if (result.apxSyncStatus === 'verification_failed') {
             apxToastLine = '\n⚠️ APX number not found — please double-check it';
         }
-        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}${result.rapidexId ? `\nRoute3 ID: ${result.rapidexId}` : ''}\nCost: $${result.cost}${apxToastLine}`, 'success');
+        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}${result.rapidexId ? `\nROUTE3 ID: ${result.rapidexId}` : ''}\nCost: $${result.cost}${apxToastLine}`, 'success');
         closeShipmentModal();
 
         // Refresh the list FIRST and unconditionally — a problem opening
@@ -2129,7 +2129,7 @@ function showPrintOptionModal(shipmentData) {
                         <div style="font-size: 14px; color: #64748b; margin-top: 8px;">Customer C/N</div>
                         <div style="font-size: 24px; font-weight: 700; color: #2563eb; letter-spacing: 2px; margin: 4px 0;">${shipmentData.customerCNumber}</div>
                         ${shipmentData.rapidexId ? `
-                        <div style="font-size: 14px; color: #64748b; margin-top: 8px;">Route3 ID</div>
+                        <div style="font-size: 14px; color: #64748b; margin-top: 8px;">ROUTE3 ID</div>
                         <div style="font-size: 22px; font-weight: 700; color: #059669; letter-spacing: 2px; margin: 4px 0;">${shipmentData.rapidexId}</div>
                         ` : ''}
                         <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 12px;">$${shipmentData.cost.toFixed(2)}</div>

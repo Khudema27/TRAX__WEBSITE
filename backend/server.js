@@ -803,7 +803,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     customerCNumber: storedShipment.customerCNumber,
                     rapidexId: storedShipment.rapidexId,
                     displayNumber: displayNumber,
-                    searchedWith: isCN ? 'Customer C/N' : isRapidex ? 'Route3 ID' : 'Tracking ID',
+                    searchedWith: isCN ? 'Customer C/N' : isRapidex ? 'ROUTE3 ID' : 'Tracking ID',
                     latestStatus: storedShipment.status || 'Created',
                     latestLocation: storedShipment.destination || 'Processing',
                     lastUpdate: storedShipment.lastUpdate || new Date().toISOString(),
@@ -865,7 +865,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                 };
                 
                 console.log(`✅ Returning user-created shipment data for: ${cleanNumber}`);
-                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : isRapidex ? 'Route3 ID' : 'Tracking ID'}`);
+                console.log(`🔑 Searched with: ${isCN ? 'Customer C/N' : isRapidex ? 'ROUTE3 ID' : 'Tracking ID'}`);
                 return res.json(response);
             }
             console.log(`⚠️ User-created shipment not found in database: ${cleanNumber}`);
@@ -897,7 +897,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     trackingNumber: cleanNumber,
                     customerCNumber: null,
                     displayNumber: cleanNumber,
-                    searchedWith: 'Route3 Tracking',
+                    searchedWith: 'ROUTE3 Tracking',
                     latestStatus: latest?.status || 'In Transit',
                     latestLocation: latest?.location || 'Processing',
                     lastUpdate: latest?.date || new Date().toISOString(),
@@ -922,12 +922,12 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     deliveryDate: r.milestones?.handed_over || 'N/A',
                     pieces: r.quantity || '1',
                     totalWeight: r.weight || 'N/A',
-                    source: 'Route3 Tracking - Live Data',
+                    source: 'ROUTE3 Tracking - Live Data',
                     isVerified: true,
                     isRealData: true,
                     isGlobal: true,
                     isUserCreated: false,
-                    carrier: rebrandRapidex(r.carrier) || 'Route3',
+                    carrier: rebrandRapidex(r.carrier) || 'ROUTE3',
                     forwardingNo: r.forwardingNo || '',
                     forwardingUrl: r.forwardingUrl || ''
                 };
@@ -1533,16 +1533,12 @@ function rebrandText(text) {
     });
 }
 
-// Same idea as rebrandText(), but for RapidEx / Rapid Express names that
+// Like rebrandText(), but always writes the brand as ROUTE3, for RapidEx / Rapid Express names that
 // appear inside text scraped from the upstream tracking page. The (?!\.)
 // lookahead keeps hostnames like "rapidexpress.pk" untouched.
 function rebrandRapidex(text) {
     if (!text) return text;
-    return String(text).replace(/\brapid[\s-]?ex(?:press)?\b(?!\.)/gi, (match) => {
-        if (match === match.toUpperCase()) return 'ROUTE3';
-        if (match[0] === match[0].toUpperCase()) return 'Route3';
-        return 'route3';
-    });
+    return String(text).replace(/\brapid[\s-]?ex(?:press)?\b(?!\.)/gi, 'ROUTE3');
 }
 
 // Short-lived cache for SmartCargo lookups. This is a real, external,
