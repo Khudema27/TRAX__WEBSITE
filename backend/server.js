@@ -10,7 +10,6 @@ require('dotenv').config();
 const path = require('path');
 const https = require('https');
 const querystring = require('querystring');
-const { sendOTPEmail, generateOTP } = require('./services/emailService');
 const { syncShipmentToAPX } = require('./services/apxSyncService');
 const { sendPushToSubscriptions } = require('./services/pushService');
 
@@ -77,12 +76,6 @@ const UserSchema = new mongoose.Schema({
     balance: { type: Number, default: 100, min: 0 },
     shipments: [{ type: String, trim: true }],
     customerCNumbers: [{ type: String, trim: true }],
-    // ---- Email verification (OTP) ----
-    isVerified: { type: Boolean, default: false },
-    otpCode: { type: String, default: null },
-    otpExpires: { type: Date, default: null },
-    otpAttempts: { type: Number, default: 0 },
-    otpLastSentAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -111,8 +104,7 @@ UserSchema.methods.generateToken = function() {
 const User = mongoose.model('User', UserSchema);
 
 // ---- Push notification subscriptions ----
-// Keyed by email rather than userId because a device needs to subscribe
-// BEFORE the account is verified (right on the OTP screen, pre-login).
+// Keyed by email rather than userId.
 const PushSubscriptionSchema = new mongoose.Schema({
     email: { type: String, required: true, lowercase: true, trim: true, index: true },
     subscription: { type: Object, required: true }, // raw PushSubscription JSON from the browser
@@ -120,35 +112,6 @@ const PushSubscriptionSchema = new mongoose.Schema({
 });
 PushSubscriptionSchema.index({ email: 1, 'subscription.endpoint': 1 }, { unique: true });
 const PushSubscription = mongoose.model('PushSubscription', PushSubscriptionSchema);
-
-/**
- * Sends an OTP push notification to every device subscribed for this
- * email, and cleans up any subscriptions the browser reports as dead.
- * Never throws — this always runs fire-and-forget alongside the OTP email.
- */
-async function pushOTPNotification(email, otp) {
-    try {
-        const normalizedEmail = email.toLowerCase().trim();
-        const subs = await PushSubscription.find({ email: normalizedEmail });
-        if (!subs.length) return;
-
-        const { deadEndpoints } = await sendPushToSubscriptions(subs, {
-            title: 'ROUTE3 TRAX',
-            body: `Your verification code is ${otp}`,
-            tag: 'trax-otp',
-            data: { url: '/' }
-        });
-
-        if (deadEndpoints?.length) {
-            await PushSubscription.deleteMany({
-                email: normalizedEmail,
-                'subscription.endpoint': { $in: deadEndpoints }
-            });
-        }
-    } catch (error) {
-        console.error('OTP push notification failed:', error.message);
-    }
-}
 
 const TransactionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -299,115 +262,19 @@ app.post('/api/auth/signup', [
 
         const existingUser = await User.findOne({ email: normalizedEmail });
 
-        // Only a FULLY VERIFIED account blocks signup. An unverified account is
-        // just an abandoned/incomplete attempt — the user never got through OTP,
-        // so we let them start over instead of dead-ending them with an error
-        // (which is what silently skipped the OTP send entirely on retries).
-        if (existingUser && existingUser.isVerified) {
+        if (existingUser) {
             return res.status(400).json({
                 error: 'Email already exists',
                 success: false
             });
         }
 
-        const otp = generateOTP();
-        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        let user;
-
-        if (existingUser) {
-            // Unverified account already on file — refresh its details and OTP.
-            // Assigning `password` triggers the pre('save') hook, so it gets
-            // re-hashed correctly rather than stored as plain text.
-            console.log(`♻️  Unverified account exists, re-issuing OTP: ${normalizedEmail}`);
-            existingUser.name = name;
-            existingUser.phone = phone;
-            existingUser.password = password;
-            existingUser.otpCode = otp;
-            existingUser.otpExpires = otpExpires;
-            existingUser.otpAttempts = 0;
-            existingUser.otpLastSentAt = new Date();
-            await existingUser.save();
-            user = existingUser;
-        } else {
-            user = new User({
-                name,
-                email: normalizedEmail,
-                phone,
-                password,
-                isVerified: false,
-                otpCode: otp,
-                otpExpires: otpExpires,
-                otpAttempts: 0,
-                otpLastSentAt: new Date()
-            });
-            await user.save();
-        }
-
-        // Await the send so the client knows whether the mail actually left our
-        // server. sendOTPEmail never throws — it resolves { sent: false, error }
-        // on failure — so a dead SMTP connection surfaces as a visible message
-        // instead of failing silently in a detached background promise.
-        console.log(`📧 Sending signup OTP to: ${user.email}`);
-        const emailResult = await sendOTPEmail(user.email, user.name, otp);
-        console.log('   → OTP email result (signup):', emailResult);
-
-        pushOTPNotification(user.email, otp);
-
-        res.json({
-            success: true,
-            requiresVerification: true,
-            email: user.email,
-            otpSent: emailResult.sent === true,
-            message: emailResult.sent
-                ? 'Account created! We sent a 6-digit verification code to your email.'
-                : 'Account created, but we could not send the email right now. Please use "Resend code".'
+        const user = new User({
+            name,
+            email: normalizedEmail,
+            phone,
+            password
         });
-    } catch (error) {
-        console.error('Signup error:', error);
-        res.status(500).json({ 
-            error: 'Server error during signup', 
-            success: false 
-        });
-    }
-});
-
-// ==================== VERIFY OTP ====================
-app.post('/api/auth/verify-otp', [
-    body('email').isEmail().withMessage('Valid email is required'),
-    body('otp').isLength({ min: 6, max: 6 }).withMessage('Enter the 6-digit code')
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ error: errors.array()[0].msg, success: false });
-        }
-
-        const { email, otp } = req.body;
-        const user = await User.findOne({ email: email.toLowerCase().trim() });
-
-        if (!user) {
-            return res.status(404).json({ error: 'Account not found', success: false });
-        }
-        // Note: we no longer short-circuit on user.isVerified here — a
-        // verified account can still have a fresh OTP pending from the
-        // login step, and that code must be checked just like a signup code.
-        const wasAlreadyVerified = user.isVerified === true;
-        if (!user.otpCode || !user.otpExpires || user.otpExpires < new Date()) {
-            return res.status(400).json({ error: 'Code expired. Please request a new one.', success: false, expired: true });
-        }
-        if (user.otpAttempts >= 5) {
-            return res.status(429).json({ error: 'Too many incorrect attempts. Please request a new code.', success: false });
-        }
-        if (user.otpCode !== otp.trim()) {
-            user.otpAttempts += 1;
-            await user.save();
-            return res.status(400).json({ error: 'Incorrect code. Please try again.', success: false });
-        }
-
-        user.isVerified = true;
-        user.otpCode = null;
-        user.otpExpires = null;
-        user.otpAttempts = 0;
         await user.save();
 
         const token = user.generateToken();
@@ -415,50 +282,14 @@ app.post('/api/auth/verify-otp', [
             success: true,
             token,
             user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
-            message: wasAlreadyVerified ? 'Login verified successfully!' : 'Email verified successfully!'
+            message: 'Account created successfully!'
         });
     } catch (error) {
-        console.error('Verify OTP error:', error);
-        res.status(500).json({ error: 'Server error', success: false });
-    }
-});
-
-// ==================== RESEND OTP ====================
-app.post('/api/auth/resend-otp', [
-    body('email').isEmail().withMessage('Valid email is required')
-], async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ error: errors.array()[0].msg, success: false });
-        }
-
-        const { email } = req.body;
-        const user = await User.findOne({ email: email.toLowerCase().trim() });
-
-        if (!user) {
-            return res.status(404).json({ error: 'Account not found', success: false });
-        }
-        // Note: we intentionally allow resend for verified accounts too —
-        // they may be mid-login and waiting on a fresh 2FA code.
-        // No cooldown — user can request a fresh code anytime.
-
-        const otp = generateOTP();
-        user.otpCode = otp;
-        user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-        user.otpAttempts = 0;
-        user.otpLastSentAt = new Date();
-        await user.save();
-
-        res.json({ success: true, message: 'A new verification code has been sent to your email.' });
-
-        sendOTPEmail(user.email, user.name, otp).catch(err =>
-            console.error('OTP email (resend) failed to send:', err.message)
-        );
-        pushOTPNotification(user.email, otp);
-    } catch (error) {
-        console.error('Resend OTP error:', error);
-        res.status(500).json({ error: 'Server error', success: false });
+        console.error('Signup error:', error);
+        res.status(500).json({ 
+            error: 'Server error during signup', 
+            success: false 
+        });
     }
 });
 
@@ -485,27 +316,12 @@ app.post('/api/auth/login', [
             });
         }
 
-        // ---- OTP required to complete every login (this also covers a ----
-        // ---- brand-new account whose email was never verified at signup) ----
-        const otp = generateOTP();
-        user.otpCode = otp;
-        user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-        user.otpAttempts = 0;
-        user.otpLastSentAt = new Date();
-        await user.save();
-
-        res.status(403).json({
-            error: 'Please enter the verification code we just emailed you to complete login.',
-            success: false,
-            requiresVerification: true,
-            email: user.email
+        const token = user.generateToken();
+        res.json({
+            success: true,
+            token,
+            user: { id: user._id, name: user.name, email: user.email, phone: user.phone }
         });
-
-        sendOTPEmail(user.email, user.name, otp).catch(err =>
-            console.error('OTP email (login) failed to send:', err.message)
-        );
-        pushOTPNotification(user.email, otp);
-        return;
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ 

@@ -39,8 +39,7 @@ async function apiRequest(endpoint, method = 'GET', data = null) {
 }
 
 // ==================== PUSH NOTIFICATIONS ====================
-// Lets the phone/browser show a real notification (even outside the tab)
-// for OTP codes, instead of relying only on the email arriving.
+// Lets the phone/browser show a real notification (even outside the tab).
 let swRegistration = null;
 
 function urlBase64ToUint8Array(base64String) {
@@ -227,14 +226,13 @@ function showAuthTab(tab) {
     setAuthView(tab);
 }
 
-// Forces exactly ONE of login / signup / otp to be visible at a time.
+// Forces exactly ONE of login / signup to be visible at a time.
 // Uses inline styles (not just CSS classes) so it can never be overridden
 // by a stale class or a conflicting toggle elsewhere in the code.
 function setAuthView(view) {
     const forms = {
         login: document.getElementById('loginForm'),
-        signup: document.getElementById('signupForm'),
-        otp: document.getElementById('otpForm')
+        signup: document.getElementById('signupForm')
     };
     Object.keys(forms).forEach(key => {
         const el = forms[key];
@@ -251,15 +249,6 @@ function setAuthView(view) {
     document.querySelectorAll('.auth-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === view);
     });
-
-    // While verifying OTP it's not a "login vs signup" choice anymore —
-    // hide the tab switcher entirely so only the OTP form is on screen.
-    const tabsEl = document.querySelector('.auth-tabs');
-    if (tabsEl) tabsEl.style.display = (view === 'otp') ? 'none' : 'flex';
-
-    if (view !== 'otp') {
-        clearInterval(otpTimerInterval);
-    }
 }
 
 function showDashboard() {
@@ -359,17 +348,12 @@ async function signup(name, email, phone, password) {
     try {
         const result = await apiRequest('/auth/signup', 'POST', { name, email, phone, password });
         showLoading(false);
-        if (result.requiresVerification) {
-            showToast('Account created! Check your email for a verification code 📧', 'success');
-            showOtpScreen(email);
-        } else if (result.token) {
-            // Fallback path in case verification is ever disabled server-side
-            authToken = result.token;
-            currentUser = result.user;
-            localStorage.setItem('authToken', authToken);
-            localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            showDashboard();
-        }
+        authToken = result.token;
+        currentUser = result.user;
+        localStorage.setItem('authToken', authToken);
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        showToast(`Welcome, ${currentUser.name}! 🎉`, 'success');
+        showDashboard();
     } catch (error) {
         showLoading(false);
         if (error.message.toLowerCase().includes('email already exists') || 
@@ -405,107 +389,13 @@ async function login(email, password) {
         showDashboard();
     } catch (error) {
         showLoading(false);
-        if (error.message.toLowerCase().includes('verification code') ||
-            error.message.toLowerCase().includes('verify your email')) {
-            showToast('Enter the code we just emailed you to finish logging in 📧', 'info');
-            showOtpScreen(email);
-        } else if (error.message.toLowerCase().includes('invalid credentials') || 
+        if (error.message.toLowerCase().includes('invalid credentials') || 
             error.message.toLowerCase().includes('invalid email') ||
             error.message.toLowerCase().includes('user not found')) {
             showToast('Invalid email or password. Please try again.', 'error');
         } else {
             showToast(error.message || 'Login failed. Please try again.', 'error');
         }
-    }
-}
-
-// ==================== EMAIL OTP VERIFICATION ====================
-let otpTimerInterval = null;
-let otpPendingEmail = null;
-
-function showOtpScreen(email) {
-    otpPendingEmail = email;
-    document.getElementById('otpEmailDisplay').textContent = email;
-    setAuthView('otp');
-
-    const digits = document.querySelectorAll('.otp-digit');
-    digits.forEach(d => d.value = '');
-    digits[0]?.focus();
-
-    startOtpCountdown(10 * 60); // 10 minutes, matches server-side expiry
-
-    // Ask for notification permission right when it's actually useful —
-    // the moment the user is waiting on a code.
-    subscribeToPushNotifications(email);
-}
-
-function startOtpCountdown(seconds) {
-    clearInterval(otpTimerInterval);
-    const timerText = document.getElementById('otpTimerText');
-    let remaining = seconds;
-
-    otpTimerInterval = setInterval(() => {
-        remaining -= 1;
-
-        const m = Math.floor(Math.max(remaining, 0) / 60).toString().padStart(2, '0');
-        const s = Math.max(remaining, 0) % 60;
-        if (timerText) {
-            timerText.textContent = remaining > 0
-                ? `Code expires in ${m}:${s.toString().padStart(2, '0')}`
-                : 'Code expired — request a new one';
-        }
-
-        if (remaining <= 0) {
-            clearInterval(otpTimerInterval);
-        }
-    }, 1000);
-}
-
-function getOtpValue() {
-    return Array.from(document.querySelectorAll('.otp-digit')).map(d => d.value.trim()).join('');
-}
-
-async function verifyOtp() {
-    const otp = getOtpValue();
-    if (otp.length !== 6) {
-        showToast('Please enter the full 6-digit code', 'error');
-        return;
-    }
-    if (!otpPendingEmail) {
-        showToast('Something went wrong — please sign up again', 'error');
-        return;
-    }
-
-    showLoading(true);
-    try {
-        const result = await apiRequest('/auth/verify-otp', 'POST', { email: otpPendingEmail, otp });
-        authToken = result.token;
-        currentUser = result.user;
-        localStorage.setItem('authToken', authToken);
-        localStorage.setItem('currentUser', JSON.stringify(currentUser));
-        showLoading(false);
-        clearInterval(otpTimerInterval);
-        showToast(`Email verified! Welcome, ${currentUser.name} 🎉`, 'success');
-        showDashboard();
-    } catch (error) {
-        showLoading(false);
-        showToast(error.message || 'Verification failed. Please try again.', 'error');
-        document.querySelectorAll('.otp-digit').forEach(d => d.value = '');
-        document.querySelector('.otp-digit')?.focus();
-    }
-}
-
-async function resendOtp() {
-    if (!otpPendingEmail) return;
-    showLoading(true);
-    try {
-        await apiRequest('/auth/resend-otp', 'POST', { email: otpPendingEmail });
-        showLoading(false);
-        showToast('New code sent to your email 📧', 'success');
-        startOtpCountdown(10 * 60);
-    } catch (error) {
-        showLoading(false);
-        showToast(error.message || 'Could not resend code', 'error');
     }
 }
 
@@ -2496,42 +2386,6 @@ document.addEventListener('DOMContentLoaded', () => {
         signup(name, email, phone, password);
     });
 
-    // ---- OTP verification screen ----
-    document.getElementById('otpFormElement')?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        verifyOtp();
-    });
-
-    document.getElementById('resendOtpBtn')?.addEventListener('click', resendOtp);
-
-    document.getElementById('backToSignupBtn')?.addEventListener('click', () => {
-        setAuthView('signup');
-    });
-
-    // OTP digit boxes: auto-advance forward/back, digits-only, paste support
-    const otpDigits = document.querySelectorAll('.otp-digit');
-    otpDigits.forEach((input, idx) => {
-        input.addEventListener('input', () => {
-            input.value = input.value.replace(/[^0-9]/g, '').slice(0, 1);
-            if (input.value && idx < otpDigits.length - 1) {
-                otpDigits[idx + 1].focus();
-            }
-        });
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Backspace' && !input.value && idx > 0) {
-                otpDigits[idx - 1].focus();
-            }
-        });
-        input.addEventListener('paste', (e) => {
-            e.preventDefault();
-            const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, 6);
-            pasted.split('').forEach((digit, i) => {
-                if (otpDigits[i]) otpDigits[i].value = digit;
-            });
-            otpDigits[Math.min(pasted.length, otpDigits.length - 1)]?.focus();
-        });
-    });
-    
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
