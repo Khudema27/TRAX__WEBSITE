@@ -21,6 +21,9 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^1.14.10"
+  },
+  "optionalDependencies": {
+    "bcrypt": "^6.0.0"
   }
 }

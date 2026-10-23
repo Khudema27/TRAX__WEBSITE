@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trax-v5';
+const CACHE_NAME = 'trax-v6';
 const SHELL_ASSETS = [
     '/',
     '/index.html',
@@ -56,21 +56,44 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Everything else — HTML/CSS/JS (our own code): network-first. Always
-    // try to get the latest version from the server; only fall back to
-    // the cached copy if the network is unavailable (offline support).
-    // This is what makes code updates show up on a normal visit instead
-    // of only in Incognito.
-    event.respondWith(
-        fetch(event.request).then(response => {
-            if (event.request.method === 'GET' && response.status === 200) {
-                const clone = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-            }
-            return response;
-        }).catch(() => caches.match(event.request).then(cached => cached || caches.match('/')))
-    );
+    // Everything else — HTML/CSS/JS (our own code): network-first, BUT with a
+    // 3-second timeout. If the server is slow or waking up from sleep, the
+    // cached copy is shown immediately instead of leaving the user staring at
+    // a blank page. The network response still refreshes the cache, so the
+    // next load has the latest code.
+    if (event.request.method !== 'GET') {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+    event.respondWith(networkFirstWithTimeout(event.request, 3000));
 });
+
+function networkFirstWithTimeout(request, timeoutMs) {
+    return new Promise(resolve => {
+        let settled = false;
+        const fallback = () => caches.match(request).then(cached => cached || caches.match('/'));
+
+        const timer = setTimeout(() => {
+            fallback().then(cached => {
+                if (!settled && cached) { settled = true; resolve(cached); }
+            });
+        }, timeoutMs);
+
+        fetch(request).then(response => {
+            clearTimeout(timer);
+            if (response.status === 200) {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+            }
+            if (!settled) { settled = true; resolve(response); }
+        }).catch(() => {
+            clearTimeout(timer);
+            if (!settled) {
+                fallback().then(cached => { settled = true; resolve(cached || Response.error()); });
+            }
+        });
+    });
+}
 
 // ==================== PUSH NOTIFICATIONS ====================
 self.addEventListener('push', event => {

@@ -179,7 +179,12 @@ function createParticles() {
     const container = document.getElementById('particles');
     if (!container) return;
     container.innerHTML = '';
-    for (let i = 0; i < 60; i++) {
+    // 60 always-running animated particles was the main cause of lag on phones/low-end PCs.
+    // Use far fewer, and none at all if the device asks for reduced motion.
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isSmallScreen = window.innerWidth < 768;
+    const particleCount = reduceMotion ? 0 : (isSmallScreen ? 8 : 18);
+    for (let i = 0; i < particleCount; i++) {
         const particle = document.createElement('div');
         particle.classList.add('particle');
         const size = Math.random() * 6 + 2;
@@ -195,15 +200,15 @@ function createParticles() {
 
 // ==================== BACKGROUND ====================
 function updateBackgroundForWelcome() {
-    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format')";
+    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=60&w=1280&auto=format')";
 }
 
 function updateBackgroundForAuth() {
-    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1566576912321-d4a1ef2cf5e7?q=80&w=2069&auto=format')";
+    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1566576912321-d4a1ef2cf5e7?q=60&w=1280&auto=format')";
 }
 
 function updateBackgroundForDashboard() {
-    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1580679568899-8b7cdf224ab6?q=80&w=2044&auto=format')";
+    document.getElementById('dynamicBg').style.backgroundImage = "url('https://images.unsplash.com/photo-1580679568899-8b7cdf224ab6?q=60&w=1280&auto=format')";
 }
 
 // ==================== SCREEN MANAGEMENT ====================
@@ -1334,20 +1339,6 @@ function generateShipmentHTML(shipmentData) {
                     <div class="barcode-caption">${shipmentData.trackingNumber}</div>
                 </div>
 
-                ${shipmentData.customerCNumber ? `
-                <div class="cn-block">
-                    <div class="cn-num">${shipmentData.customerCNumber}</div>
-                    <div class="caption">Customer C/N · Give this to your customer for tracking</div>
-                </div>
-                ` : ''}
-
-                ${shipmentData.rapidexId ? `
-                <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
-                    <div class="cn-num" style="color:#059669;">${shipmentData.rapidexId}</div>
-                    <div class="caption">ROUTE3 ID · Also trackable with this number</div>
-                </div>
-                ` : ''}
-
                 ${shipmentData.apxSynced && shipmentData.apxTrackingNumber ? `
                 <div class="cn-block" style="background:#ecfdf5; border-color:#a7f3d0;">
                     <div class="cn-num" style="color:#047857;">${shipmentData.apxTrackingNumber}</div>
@@ -1405,8 +1396,8 @@ function generateShipmentHTML(shipmentData) {
                         <div class="lbl">Weight</div>
                     </div>
                     <div class="stat-box">
-                        <div class="val">$${shipmentData.cost || '0.00'}</div>
-                        <div class="lbl">Cost</div>
+                        <div class="val">${shipmentData.service || 'Standard'}</div>
+                        <div class="lbl">Service</div>
                     </div>
                 </div>
 
@@ -1598,7 +1589,6 @@ function printShipmentFromHistory(trackingNumber) {
                 const shipmentData = {
                     trackingNumber: s.trackingNumber,
                     customerCNumber: s.customerCNumber || null,
-                    cost: s.cost || 15,
                     shipperName: s.shipperName || 'N/A',
                     shipperAddress: s.shipperAddress || 'N/A',
                     shipperPhone: s.shipperPhone || 'N/A',
@@ -1969,7 +1959,7 @@ async function createShipment(event) {
         } else if (result.apxSyncStatus === 'verification_failed') {
             apxToastLine = '\n⚠️ APX number not found — please double-check it';
         }
-        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}\nCustomer C/N: ${result.customerCNumber}${result.rapidexId ? `\nROUTE3 ID: ${result.rapidexId}` : ''}\nCost: $${result.cost}${apxToastLine}`, 'success');
+        showToast(`✅ Shipment created!\nTracking: ${result.trackingNumber}${apxToastLine}`, 'success');
         closeShipmentModal();
 
         // Refresh the list FIRST and unconditionally — a problem opening
@@ -1982,7 +1972,6 @@ async function createShipment(event) {
                 trackingNumber: result.trackingNumber,
                 customerCNumber: result.customerCNumber,
                 rapidexId: result.rapidexId,
-                cost: result.cost,
                 shipperName,
                 shipperAddress: shipperAddress || 'N/A',
                 shipperPhone: shipperCell || 'N/A',
@@ -2026,20 +2015,12 @@ function showPrintOptionModal(shipmentData) {
                     <div style="background: #ecfdf5; border-radius: 20px; padding: 24px; margin-bottom: 24px;">
                         <div style="font-size: 14px; color: #64748b;">Tracking ID</div>
                         <div style="font-size: 28px; font-weight: 800; color: #064e3b; letter-spacing: 2px; margin: 4px 0;">${shipmentData.trackingNumber}</div>
-                        <div style="font-size: 14px; color: #64748b; margin-top: 8px;">Customer C/N</div>
-                        <div style="font-size: 24px; font-weight: 700; color: #2563eb; letter-spacing: 2px; margin: 4px 0;">${shipmentData.customerCNumber}</div>
-                        ${shipmentData.rapidexId ? `
-                        <div style="font-size: 14px; color: #64748b; margin-top: 8px;">ROUTE3 ID</div>
-                        <div style="font-size: 22px; font-weight: 700; color: #059669; letter-spacing: 2px; margin: 4px 0;">${shipmentData.rapidexId}</div>
-                        ` : ''}
-                        <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 12px;">$${shipmentData.cost.toFixed(2)}</div>
-                        <div style="font-size: 13px; color: #64748b;">Shipping Cost</div>
                         <div class="apx-sync-badge ${shipmentData.apxSynced ? 'synced' : 'pending'}" style="margin-top: 14px;">
                             <i class="fas ${shipmentData.apxSynced ? 'fa-check-circle' : (shipmentData.apxSyncStatus === 'verification_failed' ? 'fa-triangle-exclamation' : 'fa-clock')}"></i>
                             ${
                                 shipmentData.apxSynced ? 'APX Verified — Authentic Real Data' :
                                 shipmentData.apxSyncStatus === 'verification_failed' ? 'APX number not found — please check it' :
-                                'Saved locally (no APX number linked)'
+                                'Saved locally'
                             }
                         </div>
                     </div>
@@ -2052,14 +2033,6 @@ function showPrintOptionModal(shipmentData) {
                         <div style="background: #f8fafc; padding: 12px 16px; border-radius: 12px;">
                             <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Consignee</div>
                             <div style="font-weight: 600; color: #064e3b;">${escapeHtml(shipmentData.consigneeName)}</div>
-                        </div>
-                    </div>
-                    
-                    <div style="background: #dbeafe; border-radius: 12px; padding: 12px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; text-align: left;">
-                        <i class="fas fa-file-pdf" style="font-size: 24px; color: #2563eb;"></i>
-                        <div>
-                            <div style="font-weight: 600; color: #1e40af; font-size: 14px;">Save as PDF</div>
-                            <div style="font-size: 12px; color: #3b82f6;">The PDF will be saved to your device</div>
                         </div>
                     </div>
                     

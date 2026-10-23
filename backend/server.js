@@ -2,7 +2,15 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+// Prefer native bcrypt (runs in a thread pool, so logins don't freeze every other
+// request while hashing). Falls back to pure-JS bcryptjs if native isn't installed.
+// Hashes are 100% compatible between the two, so existing users keep working.
+let bcrypt;
+try {
+    bcrypt = require('bcrypt');
+} catch (e) {
+    bcrypt = require('bcryptjs');
+}
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
@@ -58,8 +66,9 @@ app.use('/api/', limiter);
 console.log('\n📊 Connecting to MongoDB...');
 
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/trax', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+    maxPoolSize: 10,                  // reuse connections instead of opening new ones
+    serverSelectionTimeoutMS: 8000,   // fail fast instead of hanging if Atlas is unreachable
+    socketTimeoutMS: 30000
 })
 .then(() => console.log('✅ MongoDB connected successfully'))
 .catch(err => {
@@ -133,6 +142,8 @@ TransactionSchema.pre('save', function(next) {
     next();
 });
 
+TransactionSchema.index({ userId: 1, createdAt: -1 }); // speeds up per-user transaction lists
+
 const Transaction = mongoose.model('Transaction', TransactionSchema);
 
 // ==================== SHIPMENT STORAGE MODEL (WITH C/N NUMBER) ====================
@@ -153,7 +164,6 @@ const StoredShipmentSchema = new mongoose.Schema({
     weight: { type: String, default: '1' },
     pieces: { type: String, default: '1' },
     service: { type: String, default: 'Standard' },
-    cost: { type: Number, default: 15 },
     origin: { type: String, default: 'Pakistan' },
     destination: { type: String, default: 'International' },
     status: { type: String, default: 'Created' },
@@ -175,6 +185,8 @@ StoredShipmentSchema.pre('save', function(next) {
     next();
 });
 
+StoredShipmentSchema.index({ userId: 1, createdAt: -1 }); // speeds up "my shipments" list (was a full collection scan)
+
 const StoredShipment = mongoose.model('StoredShipment', StoredShipmentSchema);
 
 // ==================== AUTH MIDDLEWARE ====================
@@ -186,7 +198,8 @@ const authenticate = async (req, res, next) => {
     
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'trax_secret_key_2026');
-        const user = await User.findById(decoded.userId);
+        // lean() + no password hash = much lighter than loading a full Mongoose document on every request
+        const user = await User.findById(decoded.userId).select('-password').lean();
         if (!user) {
             return res.status(401).json({ error: 'User not found' });
         }
@@ -438,13 +451,11 @@ app.post('/api/auth/create-shipment', authenticate, [
         // Generate our own RapidEx-style ID: RPX + timestamp + random
         const rapidexId = generateRapidexId();
         
-        const cost = service === 'express' ? 25 : 15;
-        
-        const user = await User.findById(req.userId);
-
-        user.shipments.push(trackingNumber);
-        user.customerCNumbers.push(customerCNumber);
-        await user.save();
+        // One atomic update instead of load-whole-user + save
+        await User.updateOne(
+            { _id: req.userId },
+            { $push: { shipments: trackingNumber, customerCNumbers: customerCNumber } }
+        );
 
         // Save shipment to database with all three numbers
         const storedShipment = new StoredShipment({
@@ -464,7 +475,6 @@ app.post('/api/auth/create-shipment', authenticate, [
             weight: weight || '1',
             pieces: quantity || '1',
             service: service || 'Standard',
-            cost: cost,
             origin: origin || 'Pakistan',
             destination: destination || 'International',
             status: 'Created',
@@ -520,25 +530,11 @@ app.post('/api/auth/create-shipment', authenticate, [
             console.log('⚠️ APX sync step failed (shipment still saved locally):', syncErr.message);
         }
 
-        // Record transaction
-        const transaction = new Transaction({
-            userId: req.userId,
-            type: 'payment',
-            amount: cost,
-            description: `Shipment ${trackingNumber} - ${description}`,
-            trackingNumber: trackingNumber,
-            customerCNumber: customerCNumber,
-            reference: 'TXN' + Date.now().toString().slice(-8),
-            status: 'completed'
-        });
-        await transaction.save();
-
         res.json({
             success: true,
             trackingNumber,
             customerCNumber,
             rapidexId,
-            cost,
             apxSynced: storedShipment.apxSynced,
             apxSyncStatus: storedShipment.apxSyncStatus,
             apxSyncMessage: storedShipment.apxSyncMessage,
@@ -581,7 +577,7 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                     { customerCNumber: cleanNumber },
                     { rapidexId: cleanNumber }
                 ]
-            });
+            }).lean();
             
             if (storedShipment) {
                 console.log(`✅ Found user-created shipment: ${cleanNumber}`);
@@ -673,7 +669,6 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                         weight: storedShipment.weight,
                         pieces: storedShipment.pieces,
                         service: storedShipment.service,
-                        cost: storedShipment.cost,
                         origin: storedShipment.origin,
                         destination: storedShipment.destination,
                         createdBy: storedShipment.userId ? 'User' : 'N/A'
@@ -900,7 +895,6 @@ app.get('/api/shipment/:trackingNumber', authenticate, async (req, res) => {
                 weight: shipment.weight,
                 pieces: shipment.pieces,
                 service: shipment.service,
-                cost: shipment.cost,
                 origin: shipment.origin,
                 destination: shipment.destination,
                 status: shipment.status,
@@ -932,7 +926,9 @@ app.get('/api/shipment/:trackingNumber', authenticate, async (req, res) => {
 app.get('/api/auth/user-shipments', authenticate, async (req, res) => {
     try {
         const shipments = await StoredShipment.find({ userId: req.userId })
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .limit(500)
+            .lean();
 
         const formattedShipments = shipments.map(s => ({
             trackingNumber: s.trackingNumber,
@@ -944,7 +940,6 @@ app.get('/api/auth/user-shipments', authenticate, async (req, res) => {
             weight: s.weight,
             pieces: s.pieces,
             service: s.service,
-            cost: s.cost,
             status: s.status,
             origin: s.origin,
             destination: s.destination,
@@ -1041,7 +1036,6 @@ app.get('/api/print/:trackingNumber', authenticate, async (req, res) => {
                 weight: shipment.weight,
                 pieces: shipment.pieces,
                 service: shipment.service,
-                cost: shipment.cost,
                 origin: shipment.origin,
                 destination: shipment.destination,
                 status: shipment.status,
@@ -1153,14 +1147,24 @@ app.get('/api/auth/all-shipments', authenticate, async (req, res) => {
         const userShipments = req.user.shipments || [];
         const shipmentDetails = [];
         
-        for (const trackingNo of userShipments) {
-            const storedShipment = await StoredShipment.findOne({ 
+        // ONE query for all of this user's shipments (was one query per shipment)
+        const storedList = userShipments.length
+            ? await StoredShipment.find({
+                userId: req.userId,
                 $or: [
-                    { trackingNumber: trackingNo },
-                    { customerCNumber: trackingNo }
-                ],
-                userId: req.userId 
-            });
+                    { trackingNumber: { $in: userShipments } },
+                    { customerCNumber: { $in: userShipments } }
+                ]
+            }).lean()
+            : [];
+        const storedByNumber = new Map();
+        for (const st of storedList) {
+            storedByNumber.set(st.trackingNumber, st);
+            storedByNumber.set(st.customerCNumber, st);
+        }
+
+        for (const trackingNo of userShipments) {
+            const storedShipment = storedByNumber.get(trackingNo);
             
             if (storedShipment) {
                 shipmentDetails.push({
@@ -1358,6 +1362,13 @@ function rebrandText(text) {
 // this window instant instead of re-hitting their server.
 const smartCargoResultCache = new Map();
 const SMARTCARGO_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+// Sweep expired entries so this cache can't grow forever (memory leak on long-running servers)
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of smartCargoResultCache) {
+        if (now >= val.expiresAt) smartCargoResultCache.delete(key);
+    }
+}, 5 * 60 * 1000).unref();
 
 async function fetchFromSmartCargo(trackingNumber) {
     const cached = smartCargoResultCache.get(trackingNumber);
