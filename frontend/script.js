@@ -686,7 +686,7 @@ function displayTrackingInfo(shipment, resultDiv) {
     if (shipment.customerCNumber) {
         cnDisplay = `
             <div style="margin-top: 8px; font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <span style="font-weight: 600; color: #064e3b;">Customer C/N:</span>
+                <span style="font-weight: 600; color: #102b46;">Customer C/N:</span>
                 <span style="background: #f1f5f9; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #1e293b;">${escapeHtml(shipment.customerCNumber)}</span>
                 <span style="font-size: 11px; color: #94a3b8;">(Give this to customer for tracking)</span>
             </div>
@@ -695,8 +695,8 @@ function displayTrackingInfo(shipment, resultDiv) {
     if (shipment.rapidexId) {
         cnDisplay += `
             <div style="margin-top: 8px; font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <span style="font-weight: 600; color: #064e3b;">ROUTE3 ID:</span>
-                <span style="background: #ecfdf5; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #059669;">${escapeHtml(shipment.rapidexId)}</span>
+                <span style="font-weight: 600; color: #102b46;">ROUTE3 ID:</span>
+                <span style="background: #eaf7f0; padding: 2px 12px; border-radius: 4px; font-family: monospace; font-weight: 600; color: #138553;">${escapeHtml(shipment.rapidexId)}</span>
                 <span style="font-size: 11px; color: #94a3b8;">(Also trackable with this number)</span>
             </div>
         `;
@@ -1813,7 +1813,7 @@ async function loadShipmentsPage() {
                     <td data-label="Consignee">${escapeHtml(s.consigneeName || 'N/A')}</td>
                     <td data-label="Route" style="white-space:nowrap; font-size: 12.5px;">
                         <span style="font-weight:600;color:var(--dash-ink);">${escapeHtml(s.origin || 'N/A')}</span>
-                        <i class="fas fa-arrow-right" style="margin:0 6px; color:#10b981; font-size:10px;"></i>
+                        <i class="fas fa-arrow-right" style="margin:0 6px; color:#20a66a; font-size:10px;"></i>
                         <span style="font-weight:600;color:var(--dash-ink);">${escapeHtml(s.destination || 'N/A')}</span>
                     </td>
                     <td data-label="Date">${s.lastUpdate ? new Date(s.lastUpdate).toLocaleString() : new Date(s.createdAt).toLocaleString()}</td>
@@ -2036,13 +2036,13 @@ function showPrintOptionModal(shipmentData) {
         <div id="printOptionModal" class="modal active" onclick="if(event.target===this) closePrintOptionModal()">
             <div class="modal-content" style="max-width: 520px; text-align: center;">
                 <div class="modal-header">
-                    <h3><i class="fas fa-check-circle" style="color: #10b981;"></i> Shipment Created!</h3>
+                    <h3><i class="fas fa-check-circle" style="color: #20a66a;"></i> Shipment Created!</h3>
                     <button class="modal-close" onclick="closePrintOptionModal()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div style="background: #ecfdf5; border-radius: 20px; padding: 24px; margin-bottom: 24px;">
+                    <div style="background: #eaf7f0; border-radius: 20px; padding: 24px; margin-bottom: 24px;">
                         <div style="font-size: 14px; color: #64748b;">Tracking ID</div>
-                        <div style="font-size: 28px; font-weight: 800; color: #064e3b; letter-spacing: 2px; margin: 4px 0;">${shipmentData.trackingNumber}</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #102b46; letter-spacing: 2px; margin: 4px 0;">${shipmentData.trackingNumber}</div>
                         ${(shipmentData.apxSynced || shipmentData.apxSyncStatus === 'verification_failed') ? `
                         <div class="apx-sync-badge ${shipmentData.apxSynced ? 'synced' : 'pending'}" style="margin-top: 14px;">
                             <i class="fas ${shipmentData.apxSynced ? 'fa-check-circle' : 'fa-triangle-exclamation'}"></i>
@@ -2054,11 +2054,11 @@ function showPrintOptionModal(shipmentData) {
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; text-align: left;">
                         <div style="background: #f8fafc; padding: 12px 16px; border-radius: 12px;">
                             <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Shipper</div>
-                            <div style="font-weight: 600; color: #064e3b;">${escapeHtml(shipmentData.shipperName)}</div>
+                            <div style="font-weight: 600; color: #102b46;">${escapeHtml(shipmentData.shipperName)}</div>
                         </div>
                         <div style="background: #f8fafc; padding: 12px 16px; border-radius: 12px;">
                             <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Consignee</div>
-                            <div style="font-weight: 600; color: #064e3b;">${escapeHtml(shipmentData.consigneeName)}</div>
+                            <div style="font-weight: 600; color: #102b46;">${escapeHtml(shipmentData.consigneeName)}</div>
                         </div>
                     </div>
                     
@@ -2110,7 +2110,7 @@ function calculateRate() {
     const weight = parseFloat(document.getElementById('rateWeight')?.value) || 1;
     const service = document.getElementById('rateService')?.value;
     const total = service === 'express' ? 25 + weight * 2 : 15 + weight * 1.2;
-    document.getElementById('rateResult').innerHTML = `<div style="background:#ecfdf5; border-radius:20px; padding:20px; text-align:center"><strong style="font-size:28px;">$${total.toFixed(2)}</strong><br>Estimated Shipping Cost</div>`;
+    document.getElementById('rateResult').innerHTML = `<div style="background:#eaf7f0; border-radius:20px; padding:20px; text-align:center"><strong style="font-size:28px;">$${total.toFixed(2)}</strong><br>Estimated Shipping Cost</div>`;
 }
 
 // ==================== SUPPORT TICKET ====================
@@ -2120,8 +2120,8 @@ function openSupportModal() {
             <div class="modal-content" style="max-width: 600px;">
                 <div class="modal-header"><h3><i class="fas fa-ticket-alt"></i> Support Ticket</h3><button class="modal-close" onclick="closeSupportModal()">&times;</button></div>
                 <div class="modal-body">
-                    <input type="text" id="ticketSubject" placeholder="Subject" style="width:100%; padding:12px; margin-bottom:12px; border-radius:20px; border:2px solid #d1fae5;">
-                    <textarea id="ticketMessage" rows="5" placeholder="Describe your issue..." style="width:100%; padding:12px; border-radius:20px; border:2px solid #d1fae5;"></textarea>
+                    <input type="text" id="ticketSubject" placeholder="Subject" style="width:100%; padding:12px; margin-bottom:12px; border-radius:20px; border:2px solid #cfeedd;">
+                    <textarea id="ticketMessage" rows="5" placeholder="Describe your issue..." style="width:100%; padding:12px; border-radius:20px; border:2px solid #cfeedd;"></textarea>
                     <div style="display:flex; gap:12px; margin-top:20px;"><button onclick="closeSupportModal()" class="btn-secondary">Cancel</button><button onclick="submitTicket()" class="btn-primary">Submit</button></div>
                 </div>
             </div>
