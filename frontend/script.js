@@ -1183,8 +1183,8 @@ function generateShipmentHTML(shipmentData) {
 
             .stats-row {
                 display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: 12px;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
                 margin-bottom: 16px;
             }
             .stat-box {
@@ -1299,6 +1299,7 @@ function generateShipmentHTML(shipmentData) {
                 .no-print { display: none !important; }
             }
             @media (max-width: 600px) {
+                .stats-row { grid-template-columns: 1fr 1fr; }
                 .banner { padding: 16px 18px 14px; }
                 .body-inner { padding: 16px 18px 18px; }
                 .grid-2 { grid-template-columns: 1fr; }
@@ -1346,12 +1347,14 @@ function generateShipmentHTML(shipmentData) {
                 </div>
                 ` : ''}
 
+                ${apxSynced ? `
                 <div class="badge-row">
-                    <span class="sync-badge ${apxSynced ? 'synced' : 'pending'}">
-                        <i class="fas ${apxSynced ? 'fa-check-circle' : 'fa-clock'}"></i>
-                        ${apxSynced ? 'APX Verified — Authentic Real Data' : 'Local ROUTE3 Record'}
+                    <span class="sync-badge synced">
+                        <i class="fas fa-check-circle"></i>
+                        APX Verified — Authentic Real Data
                     </span>
                 </div>
+                ` : ''}
 
                 <div class="route-strip">
                     <div class="route-point">
@@ -1374,14 +1377,14 @@ function generateShipmentHTML(shipmentData) {
                         <div class="card-title"><i class="fas fa-box"></i> Shipper</div>
                         <div class="name">${shipmentData.shipperName || 'N/A'}</div>
                         <div class="line">${shipmentData.shipperAddress || 'N/A'}</div>
-                        <div class="line">${shipmentData.shipperCity || ''}</div>
+                        <div class="line">${shipmentData.shipperCity && shipmentData.shipperCity !== 'N/A' ? shipmentData.shipperCity : ''}</div>
                         <div class="contact"><i class="fas fa-phone"></i>${shipmentData.shipperPhone || 'N/A'}</div>
                     </div>
                     <div class="info-card consignee">
                         <div class="card-title"><i class="fas fa-map-marker-alt"></i> Consignee</div>
                         <div class="name">${shipmentData.consigneeName || 'N/A'}</div>
                         <div class="line">${shipmentData.consigneeAddress || 'N/A'}</div>
-                        <div class="line">${shipmentData.consigneeCity || ''}</div>
+                        <div class="line">${shipmentData.consigneeCity && shipmentData.consigneeCity !== 'N/A' ? shipmentData.consigneeCity : ''}</div>
                         <div class="contact"><i class="fas fa-phone"></i>${shipmentData.consigneePhone || 'N/A'}</div>
                     </div>
                 </div>
@@ -1399,12 +1402,20 @@ function generateShipmentHTML(shipmentData) {
                         <div class="val">${shipmentData.service || 'Standard'}</div>
                         <div class="lbl">Service</div>
                     </div>
+                    <div class="stat-box">
+                        <div class="val">${shipmentData.shippingAmount != null && shipmentData.shippingAmount !== '' && !isNaN(shipmentData.shippingAmount) ? Number(shipmentData.shippingAmount).toLocaleString('en-US') : '—'}</div>
+                        <div class="lbl">Shipping Amount</div>
+                    </div>
                 </div>
 
                 <div class="detail-card">
                     <div class="card-title">Shipment Details</div>
                     <div class="detail-row"><span class="k">Description</span><span class="v">${shipmentData.description || 'N/A'}</span></div>
                     <div class="detail-row"><span class="k">Service</span><span class="v">${shipmentData.service || 'Standard'}</span></div>
+                    ${shipmentData.length && shipmentData.width && shipmentData.height ? `
+                    <div class="detail-row"><span class="k">Dimensions</span><span class="v">${shipmentData.length} × ${shipmentData.width} × ${shipmentData.height} cm</span></div>
+                    <div class="detail-row"><span class="k">Volumetric Weight</span><span class="v">${shipmentData.volumetricWeight != null ? shipmentData.volumetricWeight : ((shipmentData.length * shipmentData.width * shipmentData.height) / 5000).toFixed(2)} kg</span></div>
+                    ` : ''}
                     <div class="detail-row"><span class="k">Date</span><span class="v">${shipmentData.createdDate ? new Date(shipmentData.createdDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : dateStr}</span></div>
                     <div class="detail-row"><span class="k">Status</span><span class="v">${shipmentData.status || 'Created'}</span></div>
                 </div>
@@ -1601,6 +1612,11 @@ function printShipmentFromHistory(trackingNumber) {
                     weight: s.weight || '1',
                     pieces: s.pieces || '1',
                     service: s.service || 'Standard',
+                    shippingAmount: s.shippingAmount != null ? s.shippingAmount : null,
+                    length: s.length || null,
+                    width: s.width || null,
+                    height: s.height || null,
+                    volumetricWeight: s.volumetricWeight != null ? s.volumetricWeight : null,
                     origin: s.origin || 'Pakistan',
                     destination: s.destination || 'International',
                     createdDate: s.createdAt || new Date().toISOString(),
@@ -1915,12 +1931,12 @@ async function createShipment(event) {
     const description = document.getElementById('parcelDescription')?.value;
     const weight = document.getElementById('weight')?.value;
     const quantity = document.getElementById('quantity')?.value;
-    const originRoute = parseRouteValue(document.getElementById('originCountry')?.value);
-    const destinationRoute = parseRouteValue(document.getElementById('destinationCountry')?.value);
-    const originCountry = originRoute.country;
-    const destinationCountry = destinationRoute.country;
-    const originCity = originRoute.city;
-    const destinationCity = destinationRoute.city;
+    const originCountry = document.getElementById('originCountry')?.value || 'Pakistan';
+    const destinationCountry = document.getElementById('destinationCountry')?.value || 'International';
+    const serviceType = document.getElementById('serviceType')?.value === 'Express' ? 'Express' : 'Standard';
+    const dims = readDimensions();
+    const shippingAmountRaw = (document.getElementById('shippingAmount')?.value || '').trim();
+    const shippingAmount = shippingAmountRaw === '' ? null : Number(shippingAmountRaw);
     const apxTrackingNumber = document.getElementById('apxTrackingNumber')?.value?.trim() || '';
 
     if (!shipperName || !consigneeName || !description) {
@@ -1928,8 +1944,13 @@ async function createShipment(event) {
         return;
     }
 
-    if (originCountry === destinationCountry && originCity === destinationCity) {
-        showToast('Shipping From and Shipping To can\'t be the exact same city', 'error');
+    if (shippingAmount !== null && (!Number.isFinite(shippingAmount) || shippingAmount < 0)) {
+        showToast('Please enter a valid Shipping Amount', 'error');
+        return;
+    }
+
+    if (dims.anyFilled && !dims.valid) {
+        showToast('Please enter Length, Width and Height (cm) — all three, greater than 0', 'error');
         return;
     }
 
@@ -1939,15 +1960,17 @@ async function createShipment(event) {
             shipperName,
             shipperAddress: shipperAddress || 'N/A',
             shipperPhone: shipperCell || 'N/A',
-            shipperCity: originCity,
             consigneeName,
             consigneeAddress: consigneeAddress || 'N/A',
             consigneePhone: consigneeCell || 'N/A',
-            consigneeCity: destinationCity,
             description,
             weight: weight || '1',
             quantity: quantity || '1',
-            service: 'Standard',
+            service: serviceType,
+            shippingAmount: shippingAmount !== null ? shippingAmount : undefined,
+            length: dims.valid ? dims.l : undefined,
+            width: dims.valid ? dims.w : undefined,
+            height: dims.valid ? dims.h : undefined,
             origin: originCountry,
             destination: destinationCountry,
             apxTrackingNumber: apxTrackingNumber || undefined
@@ -1981,7 +2004,12 @@ async function createShipment(event) {
                 description,
                 weight: weight || '1',
                 pieces: quantity || '1',
-                service: 'Standard',
+                service: serviceType,
+                shippingAmount: shippingAmount,
+                length: dims.valid ? dims.l : null,
+                width: dims.valid ? dims.w : null,
+                height: dims.valid ? dims.h : null,
+                volumetricWeight: dims.valid ? Number(dims.volumetric.toFixed(2)) : null,
                 origin: originCountry,
                 destination: destinationCountry,
                 createdDate: new Date().toISOString(),
@@ -2015,14 +2043,12 @@ function showPrintOptionModal(shipmentData) {
                     <div style="background: #ecfdf5; border-radius: 20px; padding: 24px; margin-bottom: 24px;">
                         <div style="font-size: 14px; color: #64748b;">Tracking ID</div>
                         <div style="font-size: 28px; font-weight: 800; color: #064e3b; letter-spacing: 2px; margin: 4px 0;">${shipmentData.trackingNumber}</div>
+                        ${(shipmentData.apxSynced || shipmentData.apxSyncStatus === 'verification_failed') ? `
                         <div class="apx-sync-badge ${shipmentData.apxSynced ? 'synced' : 'pending'}" style="margin-top: 14px;">
-                            <i class="fas ${shipmentData.apxSynced ? 'fa-check-circle' : (shipmentData.apxSyncStatus === 'verification_failed' ? 'fa-triangle-exclamation' : 'fa-clock')}"></i>
-                            ${
-                                shipmentData.apxSynced ? 'APX Verified — Authentic Real Data' :
-                                shipmentData.apxSyncStatus === 'verification_failed' ? 'APX number not found — please check it' :
-                                'Saved locally'
-                            }
+                            <i class="fas ${shipmentData.apxSynced ? 'fa-check-circle' : 'fa-triangle-exclamation'}"></i>
+                            ${shipmentData.apxSynced ? 'APX Verified — Authentic Real Data' : 'APX number not found — please check it'}
                         </div>
+                        ` : ''}
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; text-align: left;">
@@ -2130,133 +2156,32 @@ async function submitTicket() {
 }
 
 // ==================== COUNTRIES (Origin / Destination) ====================
+// Plain country list only (no cities).
 const COUNTRY_LIST = [
-    "Pakistan","United Arab Emirates","Saudi Arabia","United Kingdom","United States",
-    "Canada","China","India","Bangladesh","Sri Lanka","Nepal","Afghanistan","Iran",
-    "Turkey","Qatar","Kuwait","Bahrain","Oman","Malaysia","Singapore","Indonesia",
-    "Thailand","Japan","South Korea","Australia","New Zealand","Germany","France",
-    "Italy","Spain","Netherlands","Belgium","Switzerland","Sweden","Norway","Denmark",
-    "Ireland","Austria","Poland","Portugal","Greece","Russia","South Africa","Egypt",
-    "Nigeria","Kenya","Morocco","Brazil","Mexico","Argentina","Chile","Philippines",
-    "Vietnam","Hong Kong","Taiwan","Jordan","Lebanon","Iraq","Uzbekistan","Kazakhstan",
-    "Azerbaijan","Maldives",
-    // ---- Additional Asian countries ----
-    "Myanmar","Cambodia","Laos","Mongolia","North Korea","Bhutan","Brunei",
-    "Timor-Leste","Georgia","Armenia","Kyrgyzstan","Tajikistan","Turkmenistan",
-    "Yemen","Syria","Palestine","Israel","Cyprus"
+    "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria",
+    "Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan",
+    "Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cambodia","Cameroon",
+    "Canada","Cape Verde","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo (Brazzaville)","Congo (Kinshasa)",
+    "Costa Rica","Croatia","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador",
+    "Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France",
+    "Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea-Bissau",
+    "Guyana","Haiti","Honduras","Hong Kong","Hungary","Iceland","India","Indonesia","Iran","Iraq",
+    "Ireland","Israel","Italy","Ivory Coast","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati",
+    "Kosovo","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein",
+    "Lithuania","Luxembourg","Macau","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands",
+    "Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique",
+    "Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea",
+    "North Macedonia","Norway","Oman","Pakistan","Palau","Palestine","Panama","Papua New Guinea","Paraguay","Peru",
+    "Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines",
+    "Samoa","San Marino","Sao Tome and Principe","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia",
+    "Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname",
+    "Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga",
+    "Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States",
+    "Uruguay","Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
 ].sort((a, b) => a === "Pakistan" ? -1 : b === "Pakistan" ? 1 : a.localeCompare(b));
 
-// Major cities per country. Asia has full coverage; other regions have a
-// solid set of major cities so the dropdown works everywhere.
-const CITY_MAP = {
-    // ---- South Asia ----
-    "Pakistan": ["Karachi","Lahore","Islamabad","Rawalpindi","Faisalabad","Multan","Peshawar","Quetta","Sialkot","Gujranwala","Hyderabad","Sukkur"],
-    "India": ["Mumbai","Delhi","Bangalore","Hyderabad","Chennai","Kolkata","Pune","Ahmedabad","Jaipur","Lucknow","Surat","Amritsar"],
-    "Bangladesh": ["Dhaka","Chittagong","Khulna","Rajshahi","Sylhet","Comilla"],
-    "Sri Lanka": ["Colombo","Kandy","Galle","Jaffna","Negombo"],
-    "Nepal": ["Kathmandu","Pokhara","Lalitpur","Biratnagar"],
-    "Afghanistan": ["Kabul","Kandahar","Herat","Mazar-i-Sharif","Jalalabad"],
-    "Bhutan": ["Thimphu","Phuentsholing","Punakha"],
-    "Maldives": ["Male","Addu City","Fuvahmulah"],
-    // ---- Middle East / West Asia ----
-    "United Arab Emirates": ["Dubai","Abu Dhabi","Sharjah","Ajman","Ras Al Khaimah","Fujairah"],
-    "Saudi Arabia": ["Riyadh","Jeddah","Mecca","Medina","Dammam","Khobar"],
-    "Iran": ["Tehran","Mashhad","Isfahan","Shiraz","Tabriz"],
-    "Turkey": ["Istanbul","Ankara","Izmir","Antalya","Bursa"],
-    "Qatar": ["Doha","Al Rayyan","Al Wakrah"],
-    "Kuwait": ["Kuwait City","Hawalli","Salmiya"],
-    "Bahrain": ["Manama","Riffa","Muharraq"],
-    "Oman": ["Muscat","Salalah","Sohar"],
-    "Jordan": ["Amman","Zarqa","Irbid"],
-    "Lebanon": ["Beirut","Tripoli","Sidon"],
-    "Iraq": ["Baghdad","Basra","Erbil","Mosul"],
-    "Yemen": ["Sanaa","Aden","Taiz"],
-    "Syria": ["Damascus","Aleppo","Homs"],
-    "Palestine": ["Ramallah","Gaza City","Hebron"],
-    "Israel": ["Jerusalem","Tel Aviv","Haifa"],
-    "Cyprus": ["Nicosia","Limassol","Larnaca"],
-    // ---- Central Asia ----
-    "Uzbekistan": ["Tashkent","Samarkand","Bukhara"],
-    "Kazakhstan": ["Almaty","Astana","Shymkent"],
-    "Azerbaijan": ["Baku","Ganja","Sumqayit"],
-    "Georgia": ["Tbilisi","Batumi","Kutaisi"],
-    "Armenia": ["Yerevan","Gyumri","Vanadzor"],
-    "Kyrgyzstan": ["Bishkek","Osh"],
-    "Tajikistan": ["Dushanbe","Khujand"],
-    "Turkmenistan": ["Ashgabat","Turkmenabat"],
-    // ---- East Asia ----
-    "China": ["Shanghai","Beijing","Guangzhou","Shenzhen","Chengdu","Hangzhou","Xi'an","Wuhan"],
-    "Japan": ["Tokyo","Osaka","Yokohama","Nagoya","Sapporo","Fukuoka"],
-    "South Korea": ["Seoul","Busan","Incheon","Daegu"],
-    "North Korea": ["Pyongyang","Hamhung"],
-    "Hong Kong": ["Hong Kong Island","Kowloon","New Territories"],
-    "Taiwan": ["Taipei","Kaohsiung","Taichung"],
-    "Mongolia": ["Ulaanbaatar","Erdenet"],
-    // ---- Southeast Asia ----
-    "Malaysia": ["Kuala Lumpur","George Town","Johor Bahru","Ipoh"],
-    "Singapore": ["Singapore"],
-    "Indonesia": ["Jakarta","Surabaya","Bandung","Medan","Bali (Denpasar)"],
-    "Thailand": ["Bangkok","Chiang Mai","Phuket","Pattaya"],
-    "Philippines": ["Manila","Cebu City","Davao City","Quezon City"],
-    "Vietnam": ["Ho Chi Minh City","Hanoi","Da Nang"],
-    "Myanmar": ["Yangon","Mandalay","Naypyidaw"],
-    "Cambodia": ["Phnom Penh","Siem Reap"],
-    "Laos": ["Vientiane","Luang Prabang"],
-    "Brunei": ["Bandar Seri Begawan"],
-    "Timor-Leste": ["Dili"],
-    // ---- Other regions ----
-    "United Kingdom": ["London","Manchester","Birmingham","Glasgow"],
-    "United States": ["New York","Los Angeles","Chicago","Houston","Miami"],
-    "Canada": ["Toronto","Vancouver","Montreal","Calgary"],
-    "Australia": ["Sydney","Melbourne","Brisbane","Perth"],
-    "New Zealand": ["Auckland","Wellington","Christchurch"],
-    "Germany": ["Berlin","Munich","Frankfurt","Hamburg"],
-    "France": ["Paris","Marseille","Lyon"],
-    "Italy": ["Rome","Milan","Naples"],
-    "Spain": ["Madrid","Barcelona","Valencia"],
-    "Netherlands": ["Amsterdam","Rotterdam","The Hague"],
-    "Belgium": ["Brussels","Antwerp"],
-    "Switzerland": ["Zurich","Geneva","Bern"],
-    "Sweden": ["Stockholm","Gothenburg"],
-    "Norway": ["Oslo","Bergen"],
-    "Denmark": ["Copenhagen","Aarhus"],
-    "Ireland": ["Dublin","Cork"],
-    "Austria": ["Vienna","Salzburg"],
-    "Poland": ["Warsaw","Krakow"],
-    "Portugal": ["Lisbon","Porto"],
-    "Greece": ["Athens","Thessaloniki"],
-    "Russia": ["Moscow","Saint Petersburg"],
-    "South Africa": ["Johannesburg","Cape Town","Durban"],
-    "Egypt": ["Cairo","Alexandria","Giza"],
-    "Nigeria": ["Lagos","Abuja"],
-    "Kenya": ["Nairobi","Mombasa"],
-    "Morocco": ["Casablanca","Rabat","Marrakesh"],
-    "Brazil": ["Sao Paulo","Rio de Janeiro","Brasilia"],
-    "Mexico": ["Mexico City","Guadalajara"],
-    "Argentina": ["Buenos Aires","Cordoba"],
-    "Chile": ["Santiago","Valparaiso"]
-};
-
-function citiesFor(country) {
-    return CITY_MAP[country] || ["Other"];
-}
-
-// Builds one <select> per side listing every country's cities, grouped
-// under an <optgroup> per country. Each option's value is
-// "Country::City" so both pieces travel together as a single selection.
-function buildRouteOptions() {
-    return COUNTRY_LIST.map(country => {
-        const cities = citiesFor(country);
-        const options = cities.map(city =>
-            `<option value="${country}::${city}">${city}, ${country}</option>`
-        ).join('');
-        return `<optgroup label="${country}">${options}</optgroup>`;
-    }).join('');
-}
-
-function parseRouteValue(value) {
-    const [country, city] = (value || '').split('::');
-    return { country: country || 'Pakistan', city: city || 'Karachi' };
+function buildCountryOptions() {
+    return COUNTRY_LIST.map(c => `<option value="${c}">${c}</option>`).join('');
 }
 
 function populateCountrySelects() {
@@ -2265,14 +2190,46 @@ function populateCountrySelects() {
     if (!originSel || !destSel) return;
     if (originSel.options.length) return; // already populated
 
-    const optionsHtml = buildRouteOptions();
+    const optionsHtml = buildCountryOptions();
     originSel.innerHTML = optionsHtml;
     destSel.innerHTML = optionsHtml;
 
-    originSel.value = `Pakistan::${citiesFor('Pakistan')[0]}`;
-    // Default destination to the first non-Pakistan country's first city
-    const firstOther = COUNTRY_LIST.find(c => c !== 'Pakistan') || 'United Arab Emirates';
-    destSel.value = `${firstOther}::${citiesFor(firstOther)[0]}`;
+    originSel.value = 'Pakistan';
+    destSel.value = 'United Arab Emirates';
+}
+
+// ==================== SERVICE PICKER (Standard / Express) ====================
+function selectServiceType(value) {
+    const hidden = document.getElementById('serviceType');
+    if (hidden) hidden.value = value;
+    document.querySelectorAll('.service-option').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.service === value);
+    });
+}
+
+// ==================== DIMENSIONS / VOLUMETRIC WEIGHT ====================
+// Volumetric weight (kg) = (Length x Width x Height in cm) / 5000
+function readDimensions() {
+    const l = parseFloat(document.getElementById('dimLength')?.value);
+    const w = parseFloat(document.getElementById('dimWidth')?.value);
+    const h = parseFloat(document.getElementById('dimHeight')?.value);
+    const anyFilled = ['dimLength', 'dimWidth', 'dimHeight']
+        .some(id => (document.getElementById(id)?.value || '').trim() !== '');
+    const valid = [l, w, h].every(n => Number.isFinite(n) && n > 0);
+    return { l, w, h, anyFilled, valid, volumetric: valid ? (l * w * h) / 5000 : null };
+}
+
+function updateVolumetricWeight() {
+    const box = document.getElementById('volWeightBox');
+    if (!box) return;
+    const d = readDimensions();
+    if (d.valid) {
+        box.style.display = 'block';
+        box.innerHTML = `<i class="fas fa-weight-hanging"></i> Volumetric Weight: <strong>${d.volumetric.toFixed(2)} kg</strong> <span style="opacity:.7;">(${d.l} × ${d.w} × ${d.h} ÷ 5000)</span>`;
+    } else {
+        box.style.display = 'none';
+        box.innerHTML = '';
+    }
 }
 
 function swapCountries() {
@@ -2289,6 +2246,7 @@ function openShipmentModal() {
     const modal = document.getElementById('shipmentModal');
     if (modal) {
         populateCountrySelects();
+        selectServiceType('Standard');
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
     }

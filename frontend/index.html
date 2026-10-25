@@ -316,6 +316,40 @@
                         <input type="number" id="quantity" placeholder="Quantity" value="1">
                         <input type="text" id="weight" placeholder="Weight (kg)">
                     </div>
+                    <div class="field-block">
+                        <label class="field-label" for="shippingAmount"><i class="fas fa-money-bill-wave"></i> Shipping Amount</label>
+                        <div class="amount-field">
+                            <i class="fas fa-coins amount-icon"></i>
+                            <input type="number" id="shippingAmount" placeholder="Enter shipping amount" min="0" step="any" inputmode="decimal">
+                        </div>
+                    </div>
+
+                    <div class="field-block">
+                        <label class="field-label"><i class="fas fa-truck-fast"></i> Service</label>
+                        <input type="hidden" id="serviceType" value="Standard">
+                        <div class="service-options">
+                            <button type="button" class="service-option active" data-service="Standard" onclick="selectServiceType('Standard')">
+                                <span class="service-icon"><i class="fas fa-truck"></i></span>
+                                <span class="service-text"><strong>Standard</strong><small>Regular delivery</small></span>
+                                <i class="fas fa-circle-check service-check"></i>
+                            </button>
+                            <button type="button" class="service-option" data-service="Express" onclick="selectServiceType('Express')">
+                                <span class="service-icon"><i class="fas fa-bolt"></i></span>
+                                <span class="service-text"><strong>Express</strong><small>Priority, faster delivery</small></span>
+                                <i class="fas fa-circle-check service-check"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="field-block">
+                        <label class="field-label"><i class="fas fa-ruler-combined"></i> Dimensions</label>
+                        <div class="dim-row">
+                            <div class="input-suffix-wrap"><input type="number" id="dimLength" placeholder="Length" min="0" step="any" inputmode="decimal" oninput="updateVolumetricWeight()"><span class="input-suffix">cm</span></div>
+                            <div class="input-suffix-wrap"><input type="number" id="dimWidth" placeholder="Width" min="0" step="any" inputmode="decimal" oninput="updateVolumetricWeight()"><span class="input-suffix">cm</span></div>
+                            <div class="input-suffix-wrap"><input type="number" id="dimHeight" placeholder="Height" min="0" step="any" inputmode="decimal" oninput="updateVolumetricWeight()"><span class="input-suffix">cm</span></div>
+                        </div>
+                        <div id="volWeightBox" class="vol-weight-box" style="display:none;"></div>
+                    </div>
                 </div>
 
                 <div class="form-actions">

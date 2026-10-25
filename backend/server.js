@@ -164,6 +164,13 @@ const StoredShipmentSchema = new mongoose.Schema({
     weight: { type: String, default: '1' },
     pieces: { type: String, default: '1' },
     service: { type: String, default: 'Standard' },
+    // Dimensions in CM + volumetric weight (kg) = L x W x H / 5000
+    length: { type: Number, default: null },
+    width: { type: Number, default: null },
+    height: { type: Number, default: null },
+    volumetricWeight: { type: Number, default: null },
+    // Shipping amount entered manually by the user at booking time
+    shippingAmount: { type: Number, default: null },
     origin: { type: String, default: 'Pakistan' },
     destination: { type: String, default: 'International' },
     status: { type: String, default: 'Created' },
@@ -437,10 +444,20 @@ app.post('/api/auth/create-shipment', authenticate, [
             weight,
             quantity,
             service,
+            shippingAmount,
+            length,
+            width,
+            height,
             origin,
             destination,
             apxTrackingNumber // optional: real number from APX's own system, if staff already created it there
         } = req.body;
+
+        // Dimensions (cm) — optional, but if given they must be valid positive numbers
+        const dimL = Number(length), dimW = Number(width), dimH = Number(height);
+        const amountNum = (shippingAmount === undefined || shippingAmount === null || shippingAmount === '') ? null : Number(shippingAmount);
+        const amountOk = amountNum !== null && Number.isFinite(amountNum) && amountNum >= 0;
+        const dimsOk = [dimL, dimW, dimH].every(n => Number.isFinite(n) && n > 0 && n <= 100000);
 
         // Generate Tracking Number: TRX + timestamp + random
         const trackingNumber = 'TRX' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 100).toString().padStart(2, '0');
@@ -474,7 +491,9 @@ app.post('/api/auth/create-shipment', authenticate, [
             description,
             weight: weight || '1',
             pieces: quantity || '1',
-            service: service || 'Standard',
+            service: String(service || '').toLowerCase() === 'express' ? 'Express' : 'Standard',
+            ...(amountOk ? { shippingAmount: amountNum } : {}),
+            ...(dimsOk ? { length: dimL, width: dimW, height: dimH, volumetricWeight: Math.round((dimL * dimW * dimH / 5000) * 100) / 100 } : {}),
             origin: origin || 'Pakistan',
             destination: destination || 'International',
             status: 'Created',
@@ -628,6 +647,11 @@ app.get('/api/track/:trackingNumber', async (req, res) => {
                         service: storedShipment.service || 'Standard',
                         weight: storedShipment.weight || 'N/A',
                         weightUnit: 'kg',
+                        length: storedShipment.length || null,
+                        width: storedShipment.width || null,
+                        height: storedShipment.height || null,
+                        volumetricWeight: storedShipment.volumetricWeight != null ? storedShipment.volumetricWeight : null,
+                        shippingAmount: storedShipment.shippingAmount != null ? storedShipment.shippingAmount : null,
                         pieces: storedShipment.pieces || '1',
                         date: new Date(storedShipment.createdAt).toISOString().split('T')[0],
                         mode: 'Air',
@@ -895,6 +919,11 @@ app.get('/api/shipment/:trackingNumber', authenticate, async (req, res) => {
                 weight: shipment.weight,
                 pieces: shipment.pieces,
                 service: shipment.service,
+                length: shipment.length || null,
+                width: shipment.width || null,
+                height: shipment.height || null,
+                volumetricWeight: shipment.volumetricWeight != null ? shipment.volumetricWeight : null,
+                shippingAmount: shipment.shippingAmount != null ? shipment.shippingAmount : null,
                 origin: shipment.origin,
                 destination: shipment.destination,
                 status: shipment.status,
@@ -1036,6 +1065,11 @@ app.get('/api/print/:trackingNumber', authenticate, async (req, res) => {
                 weight: shipment.weight,
                 pieces: shipment.pieces,
                 service: shipment.service,
+                length: shipment.length || null,
+                width: shipment.width || null,
+                height: shipment.height || null,
+                volumetricWeight: shipment.volumetricWeight != null ? shipment.volumetricWeight : null,
+                shippingAmount: shipment.shippingAmount != null ? shipment.shippingAmount : null,
                 origin: shipment.origin,
                 destination: shipment.destination,
                 status: shipment.status,
